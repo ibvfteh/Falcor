@@ -72,6 +72,11 @@ private:
     /// Use importance sampling for materials.
     bool mUseImportanceSampling = true;
 
+
+    uint mHashTableSize = 1000000;
+    /// Buffer for hash grid.
+    ref<Buffer> mpHashGridBuffer;
+
     // Runtime data
 
     /// Frame count since scene was loaded.

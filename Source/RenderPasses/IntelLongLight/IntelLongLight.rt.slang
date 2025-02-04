@@ -70,9 +70,17 @@ cbuffer CB
     uint gPRNGDimension; // First available PRNG dimension.
 }
 
+cbuffer PerFrameCB
+{
+    uint gHashGridScale; // Scale of the hash grid
+}
+
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
+
+// Hash Grid
+RWStructuredBuffer<float3> hashGrid; ///< Final results. One value per grid.
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -376,6 +384,30 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
 }
 
 /**
+ * Functions for accessing  the cache
+ */
+uint hash(uint a) {
+    a = (a ^ 61) ^ (a >> 16);
+    a = a + (a << 3);
+    a = a ^ (a >> 4);
+    a = a * 0x27d4eb2d;
+    a = a ^ (a >> 15);
+    return a;
+}
+
+uint hash(uint3 idx, uint seed) {
+    return hash(idx.x ^ hash(idx.y ^ hash(idx.z ^ hash(seed))));
+}
+
+uint hashGridGetIndex(float3 position) {
+    const int3 idx_ = int3(floor(position / 0.1));
+    // const int3 idx_ = int3(floor(position / int3(gHashGridScale)));
+
+    const uint idx = hash(idx_, 42);
+    return idx;
+}
+
+/**
  * This is the main entry point for the minimal path tracer.
  *
  * One path per pixel is generated, which is traced into the scene.
@@ -406,19 +438,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // Load shading data.
         ShadingData sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir);
 
-        // Create material instance at shading point.
-        let lod = ExplicitLodTextureSampler(0.f);
-        let mi = gScene.materials.getMaterialInstance(sd, lod);
-
-        // Create sample generator.
-        SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
-
-        // Advance the generator to the first available dimension.
-        // TODO: This is potentially expensive. We may want to store/restore the state from memory if it becomes a problem.
-        for (uint i = 0; i < gPRNGDimension; i++)
-            sampleNext1D(sg);
-
-        // Compute ray origin for new rays spawned from the G-buffer.
+        // Compute ray origin for new rays spawned from the hit.
         float3 rayOrigin;
         if (isCurveHit)
         {
@@ -430,33 +450,64 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             rayOrigin = sd.computeRayOrigin();
         }
 
-        if (kComputeDirect)
-        {
-            // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
-            outColor += mi.getProperties(sd).emission;
+        // Get hash index
+        uint gridIndex = hashGridGetIndex(rayOrigin);
 
-            // Add contribution of direct light from analytic lights.
-            // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
-            outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg) : float3(0.f);
-        }
+        outColor = float3(gridIndex % 10) / 10;
 
-        // Prepare ray payload.
-        ScatterRayData rayData = ScatterRayData(sg);
+        // outColor = floor(rayOrigin / 0.1) / 10;
 
-        // Generate scatter ray.
-        if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData))
-            rayData.terminated = true;
+        // // Create material instance at shading point.
+        // let lod = ExplicitLodTextureSampler(0.f);
+        // let mi = gScene.materials.getMaterialInstance(sd, lod);
 
-        // Follow path into the scene and compute its total contribution.
-        for (uint depth = 0; depth <= kMaxBounces && !rayData.terminated; depth++)
-        {
-            // Trace scatter ray. If it hits geometry, the closest hit shader samples
-            // direct illumination and generates the next scatter ray.
-            traceScatterRay(rayData);
-        }
+        // // Create sample generator.
+        // SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
 
-        // Store contribution from scatter ray.
-        outColor += rayData.radiance;
+        // // Advance the generator to the first available dimension.
+        // // TODO: This is potentially expensive. We may want to store/restore the state from memory if it becomes a problem.
+        // for (uint i = 0; i < gPRNGDimension; i++)
+        //     sampleNext1D(sg);
+
+        // // Compute ray origin for new rays spawned from the G-buffer.
+        // float3 rayOrigin;
+        // if (isCurveHit)
+        // {
+        //     // For curves, we set the new origin at the sphere center.
+        //     rayOrigin = sd.posW - sd.curveRadius * sd.frame.N;
+        // }
+        // else
+        // {
+        //     rayOrigin = sd.computeRayOrigin();
+        // }
+
+        // if (kComputeDirect)
+        // {
+        //     // Always output directly emitted light, independent of whether emissive materials are treated as light sources or not.
+        //     outColor += mi.getProperties(sd).emission;
+
+        //     // Add contribution of direct light from analytic lights.
+        //     // Light probe and mesh lights are handled by the scatter ray hit/miss shaders.
+        //     outColor += kUseAnalyticLights ? evalDirectAnalytic(sd, mi, sg) : float3(0.f);
+        // }
+
+        // // Prepare ray payload.
+        // ScatterRayData rayData = ScatterRayData(sg);
+
+        // // Generate scatter ray.
+        // if (!generateScatterRay(sd, mi, isCurveHit, rayOrigin, rayData))
+        //     rayData.terminated = true;
+
+        // // Follow path into the scene and compute its total contribution.
+        // for (uint depth = 0; depth <= kMaxBounces && !rayData.terminated; depth++)
+        // {
+        //     // Trace scatter ray. If it hits geometry, the closest hit shader samples
+        //     // direct illumination and generates the next scatter ray.
+        //     traceScatterRay(rayData);
+        // }
+
+        // // Store contribution from scatter ray.
+        // outColor += rayData.radiance;
     }
     else
     {

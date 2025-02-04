@@ -137,6 +137,15 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         return;
     }
 
+    // Set resources.
+    // Create buffer if doesnt exist yet
+    if (!mpHashGridBuffer)
+    {
+        mpHashGridBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+    }
+
     // Taken from MinimalPathTracer
     if (is_set(mpScene->getUpdates(), IScene::UpdateFlags::RecompileNeeded) ||
         is_set(mpScene->getUpdates(), IScene::UpdateFlags::GeometryChanged))
@@ -181,6 +190,12 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
+    // TODO: add slider ImGUI
+    uint scale = 1e-4f;
+    var["PerFrameCB"]["gHashGridScale"] = scale;
+
+    // Bind  buffers
+    var["hashGrid"] = mpHashGridBuffer;
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
