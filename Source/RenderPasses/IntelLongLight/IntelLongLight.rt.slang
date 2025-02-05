@@ -64,6 +64,9 @@ import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
 
+// For Pixel Debug
+import Utils.Debug.PixelDebug;
+
 cbuffer CB
 {
     uint gFrameCount;    // Frame count since scene was loaded.
@@ -400,10 +403,11 @@ uint hash(uint3 idx, uint seed) {
 }
 
 uint hashGridGetIndex(float3 position) {
+    uint numStructs, stride;
+    hashGrid.GetDimensions(numStructs, stride);
     const int3 idx_ = int3(floor(position / 0.1));
-    // const int3 idx_ = int3(floor(position / int3(gHashGridScale)));
 
-    const uint idx = hash(idx_, 42);
+    const uint idx = hash(idx_, 42) % numStructs;
     return idx;
 }
 
@@ -423,6 +427,9 @@ uint hashGridGetIndex(float3 position) {
  */
 float3 tracePath(const uint2 pixel, const uint2 frameDim)
 {
+    // For Pixel Debug
+    printSetPixel(pixel);
+
     float3 outColor = float3(0.f);
 
     const float3 primaryRayOrigin = gScene.camera.getPosition();
@@ -453,7 +460,15 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // Get hash index
         uint gridIndex = hashGridGetIndex(rayOrigin);
 
-        outColor = float3(gridIndex % 10) / 10;
+        outColor = hashGrid[gridIndex];
+
+        print("gridIndex", gridIndex);
+        print("hashGrid[gridIndex]", hashGrid[gridIndex]);
+
+        hashGrid[gridIndex] = rayOrigin;
+
+        print("gridIndex2", gridIndex);
+        print("hashGrid[gridIndex]2", hashGrid[gridIndex]);
 
         // outColor = floor(rayOrigin / 0.1) / 10;
 

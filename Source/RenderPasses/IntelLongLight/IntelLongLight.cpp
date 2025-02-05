@@ -69,6 +69,11 @@ IntelLongLight::IntelLongLight(ref<Device> pDevice, const Properties& props) : R
 
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+
+    // For Pixel Debug
+    mpPixelDebug = std::make_unique<PixelDebug>(mpDevice);
+    mpPixelDebug->enable();
+
     FALCOR_ASSERT(mpSampleGenerator);
 }
 
@@ -114,7 +119,6 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 {
     // renderData holds the requested resources
     // auto& pTexture = renderData.getTexture("src");
-
 
     // Update refresh flag if options that affect the output have changed.
     auto& dict = renderData.getDictionary();
@@ -214,8 +218,15 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     const uint2 targetDim = renderData.getDefaultTextureDims();
     FALCOR_ASSERT(targetDim.x > 0 && targetDim.y > 0);
 
+    // For Pixel Debug
+    mpPixelDebug->beginFrame(pRenderContext, targetDim);
+    mpPixelDebug->prepareProgram(mTracer.pProgram, var);
+
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
+
+    // For Pixel Debug
+    mpPixelDebug->endFrame(pRenderContext);
 
     mFrameCount++;
 }
@@ -232,6 +243,13 @@ void IntelLongLight::renderUI(Gui::Widgets& widget)
 
     dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
     widget.tooltip("Use importance sampling for materials", true);
+
+    // For Pixel Debug
+    if (Gui::Group debug_group = widget.group("Debug"))
+    {
+        ImGui::Separator();
+        mpPixelDebug->renderUI(debug_group);
+    }
 
     // If rendering options that modify the output have changed, set flag to indicate that.
     // In execute() we will pass the flag to other passes for reset of temporal data etc.

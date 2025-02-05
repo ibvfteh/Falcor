@@ -28,6 +28,8 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+// For Pixel Debug
+#include "Utils/Debug/PixelDebug.h"
 
 using namespace Falcor;
 
@@ -49,7 +51,8 @@ public:
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    // For Pixel Debug
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return mpPixelDebug->onMouseEvent(mouseEvent); }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
@@ -62,6 +65,9 @@ private:
     ref<Scene> mpScene;
     /// GPU sample generator.
     ref<SampleGenerator> mpSampleGenerator;
+
+    // For Pixel Debug
+    std::unique_ptr<PixelDebug> mpPixelDebug;
 
     // Configuration
 
