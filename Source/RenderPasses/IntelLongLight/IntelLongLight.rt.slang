@@ -63,6 +63,7 @@ import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
+import HashGrid;
 
 // For Pixel Debug
 import Utils.Debug.PixelDebug;
@@ -73,17 +74,9 @@ cbuffer CB
     uint gPRNGDimension; // First available PRNG dimension.
 }
 
-cbuffer PerFrameCB
-{
-    uint gHashGridScale; // Scale of the hash grid
-}
-
 // Inputs
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
-
-// Hash Grid
-RWStructuredBuffer<float3> hashGrid; ///< Final results. One value per grid.
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -387,31 +380,6 @@ void handleHit(const HitInfo hit, inout ScatterRayData rayData)
 }
 
 /**
- * Functions for accessing  the cache
- */
-uint hash(uint a) {
-    a = (a ^ 61) ^ (a >> 16);
-    a = a + (a << 3);
-    a = a ^ (a >> 4);
-    a = a * 0x27d4eb2d;
-    a = a ^ (a >> 15);
-    return a;
-}
-
-uint hash(uint3 idx, uint seed) {
-    return hash(idx.x ^ hash(idx.y ^ hash(idx.z ^ hash(seed))));
-}
-
-uint hashGridGetIndex(float3 position) {
-    uint numStructs, stride;
-    hashGrid.GetDimensions(numStructs, stride);
-    const int3 idx_ = int3(floor(position / 0.1));
-
-    const uint idx = hash(idx_, 42) % numStructs;
-    return idx;
-}
-
-/**
  * This is the main entry point for the minimal path tracer.
  *
  * One path per pixel is generated, which is traced into the scene.
@@ -460,15 +428,17 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // Get hash index
         uint gridIndex = hashGridGetIndex(rayOrigin);
 
+        // print("gridIndex", gridIndex);
+        // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
+        print("gScene.getLightCount()", gScene.getLightCount());
+
+        // hashGrid[gridIndex] = rayOrigin;
+
+        // print("gridIndex2", gridIndex);
+        // print("hashGrid[gridIndex]2", hashGrid[gridIndex]);
+
         outColor = hashGrid[gridIndex];
 
-        print("gridIndex", gridIndex);
-        print("hashGrid[gridIndex]", hashGrid[gridIndex]);
-
-        hashGrid[gridIndex] = rayOrigin;
-
-        print("gridIndex2", gridIndex);
-        print("hashGrid[gridIndex]2", hashGrid[gridIndex]);
 
         // outColor = floor(rayOrigin / 0.1) / 10;
 

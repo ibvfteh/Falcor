@@ -58,6 +58,7 @@ public:
 private:
     void parseProperties(const Properties& props);
     void prepareVars();
+    void executeLightDepositShader(RenderContext* pRenderContext);
 
     // Internal state
 
@@ -96,4 +97,8 @@ private:
         ref<RtBindingTable> pBindingTable;
         ref<RtProgramVars> pVars;
     } mTracer;
+
+    // Light Deposit Compute Pass
+    uint mLightDepositSampleCount = 256;
+    ref<ComputePass> mpLightDepositPass;
 };

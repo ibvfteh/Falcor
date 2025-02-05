@@ -38,6 +38,9 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/IntelLongLight/IntelLongLight.rt.slang";
 
+// Compute Shader file for Light Deposit
+const char kLightDepositShaderFile[] = "RenderPasses/IntelLongLight/LightDeposit.slang";
+
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
 const uint32_t kMaxPayloadSizeBytes = 72u;
@@ -114,6 +117,25 @@ RenderPassReflection IntelLongLight::reflect(const CompileData& compileData)
 
     return reflector;
 }
+
+
+void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
+{
+    if (!mpLightDepositPass) return;
+
+    auto var = mpLightDepositPass->getRootVar();
+    var["hashGrid"] = mpHashGridBuffer;
+    uint scale = 1e-4f;
+    var["HashGridCB"]["gHashGridScale"] = scale;
+    var["PerFrameCB"]["gInstanceCount"] = mLightDepositSampleCount;
+
+    mpScene->bindShaderData(var["gScene"]);
+
+    mpPixelDebug->prepareProgram(mpLightDepositPass->getProgram(), var);
+
+    mpLightDepositPass->execute(pRenderContext, mLightDepositSampleCount, 1, 1);
+}
+
 
 void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
@@ -196,7 +218,7 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     // TODO: add slider ImGUI
     uint scale = 1e-4f;
-    var["PerFrameCB"]["gHashGridScale"] = scale;
+    var["HashGridCB"]["gHashGridScale"] = scale;
 
     // Bind  buffers
     var["hashGrid"] = mpHashGridBuffer;
@@ -220,6 +242,11 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // For Pixel Debug
     mpPixelDebug->beginFrame(pRenderContext, targetDim);
+
+
+    //Execute Light Deposit Pass
+    executeLightDepositShader(pRenderContext);
+
     mpPixelDebug->prepareProgram(mTracer.pProgram, var);
 
     // Spawn the rays.
@@ -338,6 +365,12 @@ void IntelLongLight::setScene(RenderContext* pRenderContext, const ref<Scene>& p
         }
 
         mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+
+        // create Compute Pass file for Light Deposit
+        DefineList defineList = {};
+        defineList.add(mpScene->getSceneDefines());
+        defineList.add(mpSampleGenerator->getDefines());
+        mpLightDepositPass = ComputePass::create(mpDevice, kLightDepositShaderFile, "main", defineList);
     }
 }
 
