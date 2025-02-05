@@ -29,9 +29,6 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("LightCount", gScene.getLightCount());
     print("gScene.lightCollection.getActiveTriangleCount()", gScene.lightCollection.getActiveTriangleCount());
 
-    uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return; // No light sources available.
-
     SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
 
     // Randomly pick a triangle out of the global list of active triangles with uniform probability.
