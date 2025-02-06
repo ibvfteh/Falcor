@@ -127,6 +127,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
     var["hashGrid"] = mpHashGridBuffer;
     float scale = 0.1f;
     var["HashGridCB"]["gHashGridScale"] = scale;
+    var["PerFrameCB"]["gFrameCount"] = mFrameCount;
     var["PerFrameCB"]["gInstanceCount"] = mLightDepositSampleCount;
 
     mpScene->bindShaderData(var["gScene"]);

@@ -29,6 +29,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("LightCount", gScene.getLightCount());
     print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
+    // Initialise sampler
     SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
 
     // Randomly pick a triangle out of the global list of active triangles with uniform probability.
@@ -49,8 +50,6 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // // Compute hash grid index for sampled light position
     uint gridIndex = hashGridGetIndex(posW);
 
-    // uint gridIndex = 40782;
-
     // // Divide energy by the number of instances for normalization
     float2 uv = tri.getTexCoord(barycentrics);
     float3 Le = gScene.materials.evalEmissive(tri.materialID, uv);
@@ -70,5 +69,5 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // InterlockedAdd(hashGrid[gridIndex].x, depositedEnergy.x);
     // InterlockedAdd(hashGrid[gridIndex].y, depositedEnergy.y);
     // InterlockedAdd(hashGrid[gridIndex].z, depositedEnergy.z);
-    hashGrid[gridIndex] += depositedEnergy; //depositedEnergy;
+    hashGrid[gridIndex] += depositedEnergy;
 }
