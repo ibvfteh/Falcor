@@ -27,7 +27,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // For Pixel Debug
     printSetPixel(uint2(dispatchThreadId.x, 0));
     // print("LightCount", gScene.getLightCount());
-    print("gScene.lightCollection.getActiveTriangleCount()", gScene.lightCollection.getActiveTriangleCount());
+    print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
     SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
 
@@ -52,8 +52,18 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // uint gridIndex = 40782;
 
     // // Divide energy by the number of instances for normalization
-    // float3 depositedEnergy = ls.Li / float(gInstanceCount);
-    float3 depositedEnergy = 0.01f;
+    float2 uv = tri.getTexCoord(barycentrics);
+    float3 Le = gScene.materials.evalEmissive(tri.materialID, uv);
+
+    // TODO: check if correct
+    float3 Be = Le / (M_PI * gHashGridScale * gHashGridScale);
+    float3 depositedEnergy = Be / float(gInstanceCount);
+
+    // print("Le", Le);
+    // print("Be", Be);
+    // print("gHashGridScale", gHashGridScale);
+    // print("kSeed", kSeed);
+    // print("depositedEnergy", depositedEnergy);
 
     // Atomically accumulate into the hash grid
     // TODO: change to InterlockedAddF32

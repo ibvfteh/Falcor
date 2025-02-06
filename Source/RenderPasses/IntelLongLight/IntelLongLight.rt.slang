@@ -439,6 +439,8 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
         outColor = hashGrid[gridIndex];
 
+        // hashGrid[gridIndex] = 0.0f;
+
 
         // outColor = floor(rayOrigin / 0.1) / 10;
 

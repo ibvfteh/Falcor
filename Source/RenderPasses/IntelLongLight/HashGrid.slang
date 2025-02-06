@@ -9,7 +9,7 @@
 
 cbuffer HashGridCB
 {
-    uint gHashGridScale; ///< Scale of the hash grid.
+    float gHashGridScale; ///< Hash Grid spatial discretization step.
 }
 
 // Hash Grid
@@ -17,9 +17,6 @@ RWStructuredBuffer<float3> hashGrid; ///< Accumulates energy per grid cell.
 
 // Random Sampling Seed
 static const uint kSeed = 42;
-
-// Shader Constants
-static const float kGridSpacing = 0.1; ///< Spatial discretization step.
 
 /**
  * Hash function for single value.
@@ -47,7 +44,7 @@ uint hash(uint3 idx, uint seed) {
 uint hashGridGetIndex(float3 position) {
     uint numStructs, stride;
     hashGrid.GetDimensions(numStructs, stride);
-    const int3 idx_ = int3(floor(position / kGridSpacing));
+    const int3 idx_ = int3(floor(position / gHashGridScale));
 
     const uint idx = hash(idx_, kSeed) % numStructs;
     return idx;

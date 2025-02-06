@@ -125,7 +125,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
 
     auto var = mpLightDepositPass->getRootVar();
     var["hashGrid"] = mpHashGridBuffer;
-    uint scale = 1e-4f;
+    float scale = 0.1f;
     var["HashGridCB"]["gHashGridScale"] = scale;
     var["PerFrameCB"]["gInstanceCount"] = mLightDepositSampleCount;
 
@@ -217,7 +217,7 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     // TODO: add slider ImGUI
-    uint scale = 1e-4f;
+    float scale = 0.1f;
     var["HashGridCB"]["gHashGridScale"] = scale;
 
     // Bind  buffers
