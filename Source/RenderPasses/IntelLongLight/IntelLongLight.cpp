@@ -73,11 +73,14 @@ IntelLongLight::IntelLongLight(ref<Device> pDevice, const Properties& props) : R
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
 
+    FALCOR_ASSERT(mpSampleGenerator);
+
     // For Pixel Debug
     mpPixelDebug = std::make_unique<PixelDebug>(mpDevice);
     mpPixelDebug->enable();
 
-    FALCOR_ASSERT(mpSampleGenerator);
+    // Create a prefix sum pass
+    mpPrefixSumPass = std::make_unique<PrefixSum>(mpDevice);
 }
 
 void IntelLongLight::parseProperties(const Properties& props)
@@ -125,6 +128,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
 
     auto var = mpLightDepositPass->getRootVar();
     var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridCDF"] = mpHashGridCDFBuffer;
     float scale = 0.1f;
     var["HashGridCB"]["gHashGridScale"] = scale;
     var["PerFrameCB"]["gFrameCount"] = mFrameCount;
@@ -135,6 +139,12 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
     mpPixelDebug->prepareProgram(mpLightDepositPass->getProgram(), var);
 
     mpLightDepositPass->execute(pRenderContext, mLightDepositSampleCount, 1, 1);
+}
+
+void IntelLongLight::executeHashGridCDFShader(RenderContext* pRenderContext)
+{
+    // pRenderContext->copyBufferRegion(mpChunkIndirectionBuffer.get(), 0, mpSubChunkValidityBuffer.get(), 0, currentSubChunkCount * sizeof(uint32_t));
+    mpPrefixSumPass->execute(pRenderContext, mpHashGridCDFBuffer, mHashTableSize, nullptr, mpHashGridCDFSumBuffer);
 }
 
 
@@ -171,6 +181,17 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         mpHashGridBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
+    }
+
+    if (!mpHashGridCDFBuffer)
+    {
+        mpHashGridCDFBuffer = mpDevice->createStructuredBuffer(
+            sizeof(uint32_t), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridCDFSumBuffer = mpDevice->createBuffer(
+            sizeof(uint32_t), ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        );
+
     }
 
     // Taken from MinimalPathTracer
@@ -248,6 +269,8 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     //Execute Light Deposit Pass
     executeLightDepositShader(pRenderContext);
 
+    executeHashGridCDFShader(pRenderContext);
+
     mpPixelDebug->prepareProgram(mTracer.pProgram, var);
 
     // Spawn the rays.
@@ -255,6 +278,10 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // For Pixel Debug
     mpPixelDebug->endFrame(pRenderContext);
+
+    // Clean the buffer
+    pRenderContext->clearUAV(mpHashGridCDFBuffer->getUAV().get(), uint4(0));
+    // pRenderContext->clearUAV(mpHashGridCDFSumBuffer->getUAV().get(), uint4(0));
 
     mFrameCount++;
 }

@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "Utils/Algorithm/PrefixSum.h"
 // For Pixel Debug
 #include "Utils/Debug/PixelDebug.h"
 
@@ -59,6 +60,7 @@ private:
     void parseProperties(const Properties& props);
     void prepareVars();
     void executeLightDepositShader(RenderContext* pRenderContext);
+    void executeHashGridCDFShader(RenderContext* pRenderContext);
 
     // Internal state
 
@@ -83,6 +85,9 @@ private:
     uint mHashTableSize = 1000000;
     /// Buffer for hash grid.
     ref<Buffer> mpHashGridBuffer;
+    /// Buffer for building CDF of a hash grid.
+    ref<Buffer> mpHashGridCDFBuffer;
+    ref<Buffer> mpHashGridCDFSumBuffer;
 
     // Runtime data
 
@@ -101,4 +106,7 @@ private:
     // Light Deposit Compute Pass
     uint mLightDepositSampleCount = 256;
     ref<ComputePass> mpLightDepositPass;
+
+    // Compute passes used to build the CDF of hash grid to select samples.
+    std::unique_ptr<PrefixSum> mpPrefixSumPass;
 };
