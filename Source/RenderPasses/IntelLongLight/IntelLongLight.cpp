@@ -26,6 +26,7 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "IntelLongLight.h"
+#include "Scene/HitInfo.h"
 #include "RenderGraph/RenderPassHelpers.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
 
@@ -40,6 +41,7 @@ const char kShaderFile[] = "RenderPasses/IntelLongLight/IntelLongLight.rt.slang"
 
 // Compute Shader file for Light Deposit
 const char kLightDepositShaderFile[] = "RenderPasses/IntelLongLight/LightDeposit.slang";
+const char kMarkovChainShaderFile[] = "RenderPasses/IntelLongLight/MarkovChainProcess.cs.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -121,6 +123,28 @@ RenderPassReflection IntelLongLight::reflect(const CompileData& compileData)
     return reflector;
 }
 
+void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext)
+{
+    if (!mpMarkovChainPass) return;
+
+    auto var = mpMarkovChainPass->getRootVar();
+    var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridCDF"] = mpHashGridCDFBuffer;
+    var["hashGridCDFSum"] = mpHashGridCDFSumBuffer;
+    var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
+    var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
+    var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
+    var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
+    var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
+    var["PerFrameCB"]["gFrameCount"] = mFrameCount;
+    var["PerFrameCB"]["gMarkovChainsCount"] = mMarkovChainsCount;
+
+    mpScene->bindShaderData(var["gScene"]);
+
+    mpPixelDebug->prepareProgram(mpMarkovChainPass->getProgram(), var);
+
+    mpMarkovChainPass->execute(pRenderContext, mMarkovChainsCount, 1, 1);
+}
 
 void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
 {
@@ -129,8 +153,10 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
     auto var = mpLightDepositPass->getRootVar();
     var["hashGrid"] = mpHashGridBuffer;
     var["hashGridCDF"] = mpHashGridCDFBuffer;
-    float scale = 0.1f;
-    var["HashGridCB"]["gHashGridScale"] = scale;
+    var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
+    var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
+    var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
+    var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
     var["PerFrameCB"]["gFrameCount"] = mFrameCount;
     var["PerFrameCB"]["gInstanceCount"] = mLightDepositSampleCount;
 
@@ -194,6 +220,20 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     }
 
+    if(!mpHashGridIntersectPoints)
+    {
+        // ResourceFormat format = mpScene->getHitInfo().getFormat();
+        // mpHashGridIntersectPoints = mpDevice->createTypedBuffer(
+        //     format, mHashTableSize * mMaxIntersectPointCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        // );
+        mpHashGridIntersectPoints = mpDevice->createStructuredBuffer(
+            2 * sizeof(float3), mHashTableSize * mMaxIntersectPointCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        );
+        mpHashGridIntersectPointCount = mpDevice->createStructuredBuffer(
+            sizeof(uint32_t), 2 * mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        );
+    }
+
     // Taken from MinimalPathTracer
     if (is_set(mpScene->getUpdates(), IScene::UpdateFlags::RecompileNeeded) ||
         is_set(mpScene->getUpdates(), IScene::UpdateFlags::GeometryChanged))
@@ -239,11 +279,13 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPRNGDimension"] = dict.keyExists(kRenderPassPRNGDimension) ? dict[kRenderPassPRNGDimension] : 0u;
     // TODO: add slider ImGUI
-    float scale = 0.1f;
-    var["HashGridCB"]["gHashGridScale"] = scale;
+    var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
+    var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
 
     // Bind  buffers
     var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
+    var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
 
     // Bind I/O buffers. These needs to be done per-frame as the buffers may change anytime.
     auto bind = [&](const ChannelDesc& desc)
@@ -264,14 +306,14 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // For Pixel Debug
     mpPixelDebug->beginFrame(pRenderContext, targetDim);
-
+    mpPixelDebug->prepareProgram(mTracer.pProgram, var);
 
     //Execute Light Deposit Pass
     executeLightDepositShader(pRenderContext);
 
     executeHashGridCDFShader(pRenderContext);
 
-    mpPixelDebug->prepareProgram(mTracer.pProgram, var);
+    executeMarkovChainShader(pRenderContext);
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
@@ -282,6 +324,9 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     // Clean the buffer
     pRenderContext->clearUAV(mpHashGridCDFBuffer->getUAV().get(), uint4(0));
     // pRenderContext->clearUAV(mpHashGridCDFSumBuffer->getUAV().get(), uint4(0));
+
+    // Clean Hash  Grid
+    pRenderContext->clearUAV(mpHashGridBuffer->getUAV().get(), uint4(0));
 
     mFrameCount++;
 }
@@ -399,6 +444,12 @@ void IntelLongLight::setScene(RenderContext* pRenderContext, const ref<Scene>& p
         defineList.add(mpScene->getSceneDefines());
         defineList.add(mpSampleGenerator->getDefines());
         mpLightDepositPass = ComputePass::create(mpDevice, kLightDepositShaderFile, "main", defineList);
+
+        // create Compute Pass file for Light Deposit
+        DefineList MarkovChainDefineList = {};
+        MarkovChainDefineList.add(mpScene->getSceneDefines());
+        MarkovChainDefineList.add(mpSampleGenerator->getDefines());
+        mpMarkovChainPass = ComputePass::create(mpDevice, kMarkovChainShaderFile, "main", MarkovChainDefineList);
     }
 }
 

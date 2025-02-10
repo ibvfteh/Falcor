@@ -27,10 +27,10 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     if (dispatchThreadId.x >= gInstanceCount) return; // Over the limit
 
-    // For Pixel Debug
-    printSetPixel(uint2(dispatchThreadId.x, 0));
-    // print("LightCount", gScene.getLightCount());
-    print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
+    // // For Pixel Debug
+    // printSetPixel(uint2(dispatchThreadId.x, 0));
+    // // print("LightCount", gScene.getLightCount());
+    // print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
     // Initialise sampler
     SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
@@ -74,4 +74,9 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // InterlockedAdd(hashGrid[gridIndex].z, depositedEnergy.z);
     hashGrid[gridIndex] += depositedEnergy;
     hashGridCDF[gridIndex] = 1;
+    uint pointNum = hashGridIntersectPointsCount[gridIndex * 2];
+    hashGridIntersectPointsCount[gridIndex * 2] = (pointNum + 1) % 10;
+    hashGridIntersectPointsCount[gridIndex * 2 + 1] = max(hashGridIntersectPointsCount[gridIndex * 2 + 1], pointNum + 1);
+    hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].pos = posW;
+    hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].dir = tri.normal;
 }

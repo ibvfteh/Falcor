@@ -430,12 +430,18 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
 
         // print("gridIndex", gridIndex);
         // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
-        print("gScene.getLightCount()", gScene.getLightCount());
+        // print("gScene.getLightCount()", gScene.getLightCount());
 
         // hashGrid[gridIndex] = rayOrigin;
 
         // print("gridIndex2", gridIndex);
-        // print("hashGrid[gridIndex]2", hashGrid[gridIndex]);
+        // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
+        // print("hitInstanceid", hit.getInstanceID().index);
+        // print("hitprimitiveindx", hit.getPrimitiveIndex());
+        // print("hashGridIntersectPointsCount", hashGridIntersectPointsCount[gridIndex * 2]);
+        // print("hashGridIntersectPointsCount1", hashGridIntersectPointsCount[gridIndex * 2 + 1]);
+        // print("hashGridIntersectPointspos", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].pos);
+        // print("hashGridIntersectPoints", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].dir);
 
         outColor = hashGrid[gridIndex];
 
