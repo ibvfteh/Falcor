@@ -129,6 +129,9 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext)
 
     auto var = mpMarkovChainPass->getRootVar();
     var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridAccum"] = mpHashGridAccBuffer;
+    var["lockBuffer"] = mpHashGridLockBuffer;
+    var["hashGridExplored"] = mpHashGridExploredBuffer;
     var["hashGridCDF"] = mpHashGridCDFBuffer;
     var["hashGridCDFSum"] = mpHashGridCDFSumBuffer;
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
@@ -152,7 +155,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
 
     auto var = mpLightDepositPass->getRootVar();
     var["hashGrid"] = mpHashGridBuffer;
-    var["hashGridCDF"] = mpHashGridCDFBuffer;
+    var["hashGridExplored"] = mpHashGridExploredBuffer;
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
     var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
@@ -169,7 +172,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
 
 void IntelLongLight::executeHashGridCDFShader(RenderContext* pRenderContext)
 {
-    // pRenderContext->copyBufferRegion(mpChunkIndirectionBuffer.get(), 0, mpSubChunkValidityBuffer.get(), 0, currentSubChunkCount * sizeof(uint32_t));
+    pRenderContext->copyBufferRegion(mpHashGridCDFBuffer.get(), 0, mpHashGridExploredBuffer.get(), 0, mHashTableSize * sizeof(uint32_t));
     mpPrefixSumPass->execute(pRenderContext, mpHashGridCDFBuffer, mHashTableSize, nullptr, mpHashGridCDFSumBuffer);
 }
 
@@ -207,6 +210,12 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         mpHashGridBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
+        mpHashGridAccBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridLockBuffer = mpDevice->createBuffer(
+            sizeof(uint) * mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        );
     }
 
     if (!mpHashGridCDFBuffer)
@@ -214,11 +223,21 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         mpHashGridCDFBuffer = mpDevice->createStructuredBuffer(
             sizeof(uint32_t), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
+        mpHashGridExploredBuffer = mpDevice->createStructuredBuffer(
+            sizeof(uint32_t), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
         mpHashGridCDFSumBuffer = mpDevice->createBuffer(
             sizeof(uint32_t), ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
         );
 
     }
+
+    // if(!mpMarkovChainStatesBuffer)
+    // {
+    //     mpMarkovChainStatesBuffer = mpDevice->createStructuredBuffer(
+    //         sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+    //     );
+    // }
 
     if(!mpHashGridIntersectPoints)
     {
@@ -284,6 +303,7 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // Bind  buffers
     var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridAccum"] = mpHashGridAccBuffer;
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
 
@@ -311,9 +331,12 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     //Execute Light Deposit Pass
     executeLightDepositShader(pRenderContext);
 
-    executeHashGridCDFShader(pRenderContext);
+    for (uint i = 0; i < 1; i++)
+    {
+        executeHashGridCDFShader(pRenderContext);
 
-    executeMarkovChainShader(pRenderContext);
+        executeMarkovChainShader(pRenderContext);
+    }
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
@@ -327,6 +350,10 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // Clean Hash  Grid
     pRenderContext->clearUAV(mpHashGridBuffer->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(mpHashGridAccBuffer->getUAV().get(), uint4(0));
+
+    // Clear Sampled Points for now
+    pRenderContext->clearUAV(mpHashGridExploredBuffer->getUAV().get(), uint4(0));
 
     mFrameCount++;
 }
@@ -449,7 +476,13 @@ void IntelLongLight::setScene(RenderContext* pRenderContext, const ref<Scene>& p
         DefineList MarkovChainDefineList = {};
         MarkovChainDefineList.add(mpScene->getSceneDefines());
         MarkovChainDefineList.add(mpSampleGenerator->getDefines());
-        mpMarkovChainPass = ComputePass::create(mpDevice, kMarkovChainShaderFile, "main", MarkovChainDefineList);
+
+        ProgramDesc MarkovChainDesc;
+        MarkovChainDesc.addShaderModules(mpScene->getShaderModules());
+        MarkovChainDesc.addShaderLibrary(kMarkovChainShaderFile).csEntry("main");
+        MarkovChainDesc.addTypeConformances(mpScene->getTypeConformances());
+
+        mpMarkovChainPass = ComputePass::create(mpDevice, MarkovChainDesc, MarkovChainDefineList);
     }
 }
 

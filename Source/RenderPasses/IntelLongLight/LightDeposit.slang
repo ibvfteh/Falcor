@@ -17,7 +17,7 @@ cbuffer PerFrameCB
 }
 
 // Hash Grid
-RWStructuredBuffer<uint32_t> hashGridCDF; ///< Accumulates energy per grid cell.
+RWStructuredBuffer<uint32_t> hashGridExplored; ///< Accumulates energy per grid cell.
 
 /**
  * Samples a random emissive light source and deposits its energy into the hash grid.
@@ -73,7 +73,9 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // InterlockedAdd(hashGrid[gridIndex].y, depositedEnergy.y);
     // InterlockedAdd(hashGrid[gridIndex].z, depositedEnergy.z);
     hashGrid[gridIndex] += depositedEnergy;
-    hashGridCDF[gridIndex] = 1;
+
+    // add new point for random selection
+    hashGridExplored[gridIndex] = 1;
     uint pointNum = hashGridIntersectPointsCount[gridIndex * 2];
     hashGridIntersectPointsCount[gridIndex * 2] = (pointNum + 1) % 10;
     hashGridIntersectPointsCount[gridIndex * 2 + 1] = max(hashGridIntersectPointsCount[gridIndex * 2 + 1], pointNum + 1);

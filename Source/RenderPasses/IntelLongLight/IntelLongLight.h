@@ -83,19 +83,23 @@ private:
     bool mUseImportanceSampling = true;
 
 
-    uint mHashTableSize = 1000000;
+    uint mHashTableSize = 10000000;
     float mHashTableScale = 0.1f;
     /// Buffer for hash grid.
     // TODO: change to two buffers
     ref<Buffer> mpHashGridBuffer; // mpHashGridUnshotBuffer;
-    // ref<Buffer> mpHashGridAccBuffer; // Buffer for accumulated radiosity, add it with unshot in the final output render
+    ref<Buffer> mpHashGridLockBuffer; // mpHashGridUnshotBuffer;
+    ref<Buffer> mpHashGridAccBuffer; // Buffer for accumulated radiosity, add it with unshot in the final output render
     /// Buffer for building CDF of a hash grid.
+    ref<Buffer> mpHashGridExploredBuffer;
     ref<Buffer> mpHashGridCDFBuffer;
     ref<Buffer> mpHashGridCDFSumBuffer;
     // Buffer that has number of known intersetcion points for every cache cell
     uint mMaxIntersectPointCount = 10;
     ref<Buffer> mpHashGridIntersectPoints;
     ref<Buffer> mpHashGridIntersectPointCount;
+    // TODO: change to two buffers
+    ref<Buffer> mpMarkovChainStatesBuffer; // mpHashGridUnshotBuffer;
 
     // Runtime data
 
@@ -119,7 +123,7 @@ private:
     std::unique_ptr<PrefixSum> mpPrefixSumPass;
 
     // Marcov Chain Monte Carlo
-    uint mMarkovChainsCount = 128;
+    uint mMarkovChainsCount = 4024;
     uint mMarcovChainsIterationsCount = 1;
     ref<ComputePass> mpMarkovChainPass;
 };
