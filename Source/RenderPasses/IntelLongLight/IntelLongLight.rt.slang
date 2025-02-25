@@ -427,8 +427,9 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
             rayOrigin = sd.computeRayOrigin();
         }
 
+        float3 hitNormal = sd.getOrientedFaceNormal();
         // Get hash index
-        uint gridIndex = hashGridGetIndex(rayOrigin);
+        uint gridIndex = hashGridGetIndex(rayOrigin, hitNormal);
 
         // print("gridIndex", gridIndex);
         // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
@@ -445,9 +446,20 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // print("hashGridIntersectPointspos", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].pos);
         // print("hashGridIntersectPoints", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].dir);
 
-        outColor = max(hashGrid[gridIndex] + hashGridAccum[gridIndex], float3(0.0f, 0.0f, 0.0f)); //hashGrid[gridIndex] + hashGridAccum[gridIndex];
+        float3 value = hashGrid[gridIndex];// + hashGridAccum[gridIndex];
 
-        print("hash", outColor);
+        // cell area
+        //TODO: need to work on correctness
+        float area = gHashGridScale * gHashGridScale;
+
+        outColor = max(value, float3(0.0f, 0.0f, 0.0f)) / M_PI;
+
+        outColor = outColor / area;
+
+        print("hashGrid", value);
+        print("area", area);
+
+        print("outColor", outColor);
 
         // hashGrid[gridIndex] = 0.0f;
 

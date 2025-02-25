@@ -34,6 +34,15 @@
 
 using namespace Falcor;
 
+struct MarkovChainState
+{
+    float3 point1;
+    float3 normal1;
+    float3 point2;
+    float3 normal2;
+    uint init;
+};
+
 class IntelLongLight : public RenderPass
 {
 public:
@@ -61,7 +70,7 @@ private:
     void prepareVars();
     void executeLightDepositShader(RenderContext* pRenderContext);
     void executeHashGridCDFShader(RenderContext* pRenderContext);
-    void executeMarkovChainShader(RenderContext* pRenderContext);
+    void executeMarkovChainShader(RenderContext* pRenderContext, uint iteration);
 
     // Internal state
 
@@ -84,7 +93,7 @@ private:
 
 
     uint mHashTableSize = 10000000;
-    float mHashTableScale = 0.1f;
+    float mHashTableScale = 0.03f;
     /// Buffer for hash grid.
     // TODO: change to two buffers
     ref<Buffer> mpHashGridBuffer; // mpHashGridUnshotBuffer;
@@ -95,7 +104,7 @@ private:
     ref<Buffer> mpHashGridCDFBuffer;
     ref<Buffer> mpHashGridCDFSumBuffer;
     // Buffer that has number of known intersetcion points for every cache cell
-    uint mMaxIntersectPointCount = 10;
+    uint mMaxIntersectPointCount = 4;
     ref<Buffer> mpHashGridIntersectPoints;
     ref<Buffer> mpHashGridIntersectPointCount;
     // TODO: change to two buffers
@@ -116,14 +125,14 @@ private:
     } mTracer;
 
     // Light Deposit Compute Pass
-    uint mLightDepositSampleCount = 256;
+    uint mLightDepositSampleCount = 256 * 400;
     ref<ComputePass> mpLightDepositPass;
 
     // Compute passes used to build the CDF of hash grid to select samples.
     std::unique_ptr<PrefixSum> mpPrefixSumPass;
 
     // Marcov Chain Monte Carlo
-    uint mMarkovChainsCount = 4024;
+    uint mMarkovChainsCount = 40000;
     uint mMarcovChainsIterationsCount = 1;
     ref<ComputePass> mpMarkovChainPass;
 };

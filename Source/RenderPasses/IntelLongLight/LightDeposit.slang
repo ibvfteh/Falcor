@@ -1,5 +1,6 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
+#include "Utils/NVAPI.slangh"
 
 import Scene.Scene;
 import Utils.Sampling.SampleGenerator;
@@ -29,6 +30,8 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // // For Pixel Debug
     // printSetPixel(uint2(dispatchThreadId.x, 0));
+    printSetPixel(uint2(0, 0));
+    print("index", dispatchThreadId.x);
     // // print("LightCount", gScene.getLightCount());
     // print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
@@ -49,17 +52,30 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // Sample the triangle uniformly.
     const float3 barycentrics = sample_triangle(u);
     float3 posW = tri.getPosition(barycentrics);
+    float area = tri.area;
 
     // // Compute hash grid index for sampled light position
-    uint gridIndex = hashGridGetIndex(posW);
+    uint gridIndex = hashGridGetIndex(posW, tri.normal);
+
+    // float sampleArea = tri.area / (float(gInstanceCount) / triangleCount);
 
     // // Divide energy by the number of instances for normalization
     float2 uv = tri.getTexCoord(barycentrics);
     float3 Le = gScene.materials.evalEmissive(tri.materialID, uv);
 
-    // TODO: check if correct
-    float3 Be = Le / (M_PI * gHashGridScale * gHashGridScale);
-    float3 depositedEnergy = Be / float(gInstanceCount);
+    // Compute Radiance
+    float3 Be = Le * M_PI; // / (float(gInstanceCount) / triangleCount) / (gHashGridScale * gHashGridScale);
+    // Compute Flux
+    float3 Phie = Be * tri.area;
+
+    // Flux for one sample
+    float3 samplePhie = Phie / (float(gInstanceCount) / triangleCount);
+
+    // float3 depositedEnergy = Be / float(gInstanceCount);
+    // float3 Be = Le * M_PI;
+    // float3 depositedEnergy = Be;
+
+    // print("hashGrid[gridIndex]p", hashGrid[gridIndex]);
 
     // print("Le", Le);
     // print("Be", Be);
@@ -69,10 +85,28 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // Atomically accumulate into the hash grid
     // TODO: change to InterlockedAddF32
-    // InterlockedAdd(hashGrid[gridIndex].x, depositedEnergy.x);
-    // InterlockedAdd(hashGrid[gridIndex].y, depositedEnergy.y);
-    // InterlockedAdd(hashGrid[gridIndex].z, depositedEnergy.z);
-    hashGrid[gridIndex] += depositedEnergy;
+
+    hashGridbuff.InterlockedAddF32(gridIndex * 12, samplePhie.x);
+    hashGridbuff.InterlockedAddF32(gridIndex * 12 + 4, samplePhie.y);
+    hashGridbuff.InterlockedAddF32(gridIndex * 12 + 8, samplePhie.z);
+    // hashGrid[gridIndex] += depositedEnergy;
+    // if (lock(gridIndex))
+    // {
+    //     hashGrid[gridIndex] = hashGrid[gridIndex] + samplePhie;
+    //     unlock(gridIndex);
+    // }
+    // else
+    //     print("no luck", samplePhie);
+
+    // unlock(gridIndex);
+    // unlock(gridIndex);
+
+    // print("posW", posW);
+    // print("tri.normal", tri.normal);
+
+    // print("samplePhie", samplePhie);
+    // print("gridIndex", gridIndex);
+    // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
 
     // add new point for random selection
     hashGridExplored[gridIndex] = 1;

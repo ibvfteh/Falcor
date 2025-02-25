@@ -123,7 +123,7 @@ RenderPassReflection IntelLongLight::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext)
+void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext, uint iteration)
 {
     if (!mpMarkovChainPass) return;
 
@@ -136,10 +136,12 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext)
     var["hashGridCDFSum"] = mpHashGridCDFSumBuffer;
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
+    var["markovChainStates"] = mpMarkovChainStatesBuffer;
     var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
     var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
     var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
     var["PerFrameCB"]["gFrameCount"] = mFrameCount;
+    var["PerFrameCB"]["gIterationCount"] = iteration;
     var["PerFrameCB"]["gMarkovChainsCount"] = mMarkovChainsCount;
 
     mpScene->bindShaderData(var["gScene"]);
@@ -154,10 +156,11 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
     if (!mpLightDepositPass) return;
 
     auto var = mpLightDepositPass->getRootVar();
-    var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridbuff"] = mpHashGridBuffer;
     var["hashGridExplored"] = mpHashGridExploredBuffer;
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
+    var["lockBuffer"] = mpHashGridLockBuffer;
     var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
     var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
     var["PerFrameCB"]["gFrameCount"] = mFrameCount;
@@ -232,12 +235,12 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     }
 
-    // if(!mpMarkovChainStatesBuffer)
-    // {
-    //     mpMarkovChainStatesBuffer = mpDevice->createStructuredBuffer(
-    //         sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
-    //     );
-    // }
+    if(!mpMarkovChainStatesBuffer)
+    {
+        mpMarkovChainStatesBuffer = mpDevice->createStructuredBuffer(
+            sizeof(MarkovChainState), mMarkovChainsCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+    }
 
     if(!mpHashGridIntersectPoints)
     {
@@ -331,11 +334,11 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     //Execute Light Deposit Pass
     executeLightDepositShader(pRenderContext);
 
-    for (uint i = 0; i < 1; i++)
+    for (uint i = 0; i < 0; i++)
     {
         executeHashGridCDFShader(pRenderContext);
 
-        executeMarkovChainShader(pRenderContext);
+        executeMarkovChainShader(pRenderContext, i);
     }
 
     // Spawn the rays.
@@ -354,6 +357,9 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // Clear Sampled Points for now
     pRenderContext->clearUAV(mpHashGridExploredBuffer->getUAV().get(), uint4(0));
+
+    // Clear MCstates for now
+    pRenderContext->clearUAV(mpMarkovChainStatesBuffer->getUAV().get(), uint4(0));
 
     mFrameCount++;
 }

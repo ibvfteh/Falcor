@@ -32,6 +32,7 @@ import HashGrid;
 cbuffer PerFrameCB
 {
     uint gFrameCount;        // Frame count since scene was loaded.
+    uint gIterationCount;        // Frame count since scene was loaded.
     uint gMarkovChainsCount; // Number of active markov chains
 }
 
@@ -40,9 +41,18 @@ RWStructuredBuffer<uint32_t> hashGridExplored;
 RWStructuredBuffer<uint32_t> hashGridCDF;            ///< Accumulates energy per grid cell.
 RWStructuredBuffer<uint32_t> hashGridCDFSum;         ///< Accumulates energy per grid cell.
 
-RWByteAddressBuffer lockBuffer;
-
 RWStructuredBuffer<float3> hashGridAccum;
+
+struct MarkovChainState
+{
+    float3 point1;
+    float3 normal1;
+    float3 point2;
+    float3 normal2;
+    uint init;
+};
+
+RWStructuredBuffer<MarkovChainState> markovChainStates;
 
 // looks into CDF to get a selected index of a grid
 uint binarySearchHashGridCDFIndex(float searchValue, uint totalElements)
@@ -117,26 +127,6 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const flo
     return sd;
 }
 
-void lock(uint index)
-{
-    uint expected = 0;
-    uint desired = 1;
-    uint original;
-
-    // Spinlock: Try to set lockBuffer[index] to 1 if it is currently 0
-    int i = 0;
-    do {
-        lockBuffer.InterlockedCompareExchange(index, expected, desired, original);
-        if (i++ > 1000) return;
-    } while (original != expected);
-}
-
-void unlock(uint index)
-{
-    uint original;
-    lockBuffer.InterlockedExchange(index, 0, original);
-}
-
 [numthreads(128, 1, 1)]
 void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
@@ -148,7 +138,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
     // Initialise sampler
-    SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
+    SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gIterationCount + 10 * gFrameCount);
 
     // if large or small step
 
@@ -189,7 +179,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     float cosinePDF;
     float3 localDir = sample_cosine_hemisphere_concentric(sampleNext2D(sg), cosinePDF);
-    // float cosinePDF = 1 / M_2_PI;
+    // float cosinePDF = 1 / (2 * M_PI);
     // float3 localDir = sample_hemisphere(sampleNext2D(sg));
     // Generate an orthonormal basis from the normal.
     float3 tangent, bitangent;
@@ -207,9 +197,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // hashGrid.InterlockedAddF32(shootIndex * 12 + 4, -energy.y);
     // hashGrid.InterlockedAddF32(shootIndex * 12 + 8, -energy.z);
 
-    print("hashGrid[shootIndex]", hashGrid[shootIndex]);
-
-    float3 energy = hashGrid[shootIndex] / 4;
+    // print("hashGrid[shootIndex]", hashGrid[shootIndex]);
 
     // Define and trace the ray
     const Ray ray = Ray(primaryRayOrigin, primaryRayDir, 0.001f, 1000.0f);
@@ -220,93 +208,142 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("localDir", localDir);
     // print("primaryRayDir", primaryRayDir);
 
-    lock (shootIndex);
-    if (all(hashGrid[shootIndex] > float3(0.0f, 0.0f, 0.0f)))
+    float3 energy;
+    if (lock (shootIndex))
+    {
+        if (all(hashGrid[shootIndex] <= float3(0.0f, 0.0f, 0.0f)))
+        {
+            unlock(shootIndex);
+            return;
+        }
+        energy = hashGrid[shootIndex] / 1;
         hashGrid[shootIndex] -= energy;
         hashGridAccum[shootIndex] += energy;
-    unlock(shootIndex);
+        unlock(shootIndex);
 
+        print("energy", energy);
 
-    if (hit.isValid())
-    {
-        const bool isCurveHit = hit.getType() == HitType::Curve;
-
-        // Load shading data.
-        ShadingData sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir);
-
-        // Compute ray origin for new rays spawned from the hit.
-        float3 hitOrigin;
-        if (isCurveHit)
+        if (hit.isValid())
         {
-            // For curves, we set the new origin at the sphere center.
-            hitOrigin = sd.posW - sd.curveRadius * sd.frame.N;
+            const bool isCurveHit = hit.getType() == HitType::Curve;
+
+            // Load shading data.
+            ShadingData sd = loadShadingData(hit, primaryRayOrigin, primaryRayDir);
+
+            // Compute ray origin for new rays spawned from the hit.
+            float3 hitOrigin;
+            if (isCurveHit)
+            {
+                // For curves, we set the new origin at the sphere center.
+                hitOrigin = sd.posW - sd.curveRadius * sd.frame.N;
+            }
+            else
+            {
+                hitOrigin = sd.computeRayOrigin();
+            }
+
+            float3 hitNormal = sd.getOrientedFaceNormal();
+
+            // Get hash index
+            uint gridIndex = hashGridGetIndex(hitOrigin, hitNormal);
+
+            // print("markovChainStates.init", markovChainStates[dispatchThreadId.x].init);
+
+            // No previous stae
+            if (true)
+            // if (markovChainStates[dispatchThreadId.x].init == 0)
+            {
+                float cosj_curr = dot(normal, primaryRayDir);
+
+                let lod = ExplicitLodTextureSampler(0.f);
+                let mi = gScene.materials.getMaterialInstance(sd, lod);
+
+                BSDFProperties bsdf = mi.getProperties(sd);
+
+                float3 f_y = energy * bsdf.diffuseReflectionAlbedo * cosj_curr;
+
+                if (lock (gridIndex))
+                {
+                    hashGrid[gridIndex] += f_y;
+                }
+                unlock(gridIndex);
+
+                // Save State
+                markovChainStates[dispatchThreadId.x].init = 1;
+                markovChainStates[dispatchThreadId.x].point1 = hitOrigin;
+                markovChainStates[dispatchThreadId.x].normal1 = hitNormal;
+                markovChainStates[dispatchThreadId.x].point2 = primaryRayOrigin;
+                markovChainStates[dispatchThreadId.x].normal2 = normal;
+            }
+            else
+            {
+                float cosi_curr = dot(hitNormal, -primaryRayDir);
+                float cosj_curr = dot(normal, primaryRayDir);
+                float eps = 1e-18;
+                float G_curr = max(cosi_curr * cosj_curr, 0) / (M_PI * hitT * hitT + eps);
+
+                float jacobian_curr = max(cosi_curr, 0) / (hitT * hitT + eps);
+                float T_curr = cosinePDF * jacobian_curr;
+
+                // Load prevoius state
+                float3 prevPoint1 = markovChainStates[dispatchThreadId.x].point1;
+                float3 prevPoint2 = markovChainStates[dispatchThreadId.x].point2;
+                float3 prevNormal1 = markovChainStates[dispatchThreadId.x].normal1;
+                float3 prevNormal2 = markovChainStates[dispatchThreadId.x].normal2;
+                float prevDist = distance(prevPoint2, prevPoint1);
+                float3 prevRayDir = normalize(prevPoint1 - prevPoint2);
+
+                float cosi_prev = dot(prevNormal1, -prevRayDir);
+                float cosj_prev = dot(prevNormal2, prevRayDir);
+                float G_prev = max(cosi_prev * cosj_prev, 0) / (M_PI * prevDist * prevDist + eps);
+
+                float jacobian_prev = cosi_prev / (prevDist * prevDist + eps);
+                float pdf_prev = cosj_prev / M_PI;
+                float T_prev = pdf_prev * jacobian_prev;
+
+                // Importance
+                float g_y = 1 * jacobian_curr;
+                float g_x = 1 * jacobian_prev;
+
+                print("T_prev", T_prev);
+                print("T_curr", T_curr);
+
+                // Acceptance
+                float acceptance_prob = min(1.0, g_y * T_prev / (g_x * T_curr + eps));
+
+                print("accept", acceptance_prob);
+
+                if (sampleNext1D(sg) < acceptance_prob)
+                {
+                    // Create material instance.
+                    let lod = ExplicitLodTextureSampler(0.f);
+                    let mi = gScene.materials.getMaterialInstance(sd, lod);
+
+                    BSDFProperties bsdf = mi.getProperties(sd);
+
+                    float3 f_y = energy * bsdf.diffuseReflectionAlbedo * G_curr;
+
+                    print("f_y", f_y);
+
+                    hashGrid[gridIndex] +=  f_y / g_y;
+
+                    // Save State
+                    markovChainStates[dispatchThreadId.x].init = 1;
+                    markovChainStates[dispatchThreadId.x].point1 = hitOrigin;
+                    markovChainStates[dispatchThreadId.x].normal1 = hitNormal;
+                    markovChainStates[dispatchThreadId.x].point2 = primaryRayOrigin;
+                    markovChainStates[dispatchThreadId.x].normal2 = normal;
+                }
+            }
+
+            // add new point for random selection
+            hashGridExplored[gridIndex] = 1;
+            uint pointNum = hashGridIntersectPointsCount[gridIndex * 2];
+            hashGridIntersectPointsCount[gridIndex * 2] = (pointNum + 1) % 10;
+            hashGridIntersectPointsCount[gridIndex * 2 + 1] = max(hashGridIntersectPointsCount[gridIndex * 2 + 1], pointNum + 1);
+            hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].pos = hitOrigin;
+            hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].dir = hitNormal;
         }
-        else
-        {
-            hitOrigin = sd.computeRayOrigin();
-        }
-
-        // Get hash index
-        uint gridIndex = hashGridGetIndex(hitOrigin);
-
-        float3 hitNormal = sd.getOrientedFaceNormal();
-
-        float cosi_curr = dot(hitNormal, -primaryRayDir);
-        float cosj_curr = dot(normal, primaryRayDir);
-        float eps = 1e-18;
-        float G_curr = max(cosi_curr * cosj_curr, 0) / (M_PI * hitT * hitT + eps);
-
-        // print("sd.frame.N", sd.faceN);
-        // print("hitOrigin", hitOrigin);
-        // print("primaryRayOrigin", primaryRayOrigin);
-        // // print("cosi_curr", cosi_curr);
-        // print("hitT", hitT);
-
-        float jacobian_curr = max(cosi_curr, 0) / (hitT * hitT + eps);
-        float pdf_curr = cosinePDF * jacobian_curr;
-        // float T_curr = cosinePDF * curr_jacobian;
-        // float g_y = hashGrid[gridIndex].x; // Assuming importance is stored in x component
-
-        print("cosj_curr", cosj_curr);
-        print("GGGGGGGGG", G_curr / pdf_curr);
-
-        // Create material instance.
-
-        let lod = ExplicitLodTextureSampler(0.f);
-        let mi = gScene.materials.getMaterialInstance(sd, lod);
-
-        // print("kek", mi.getProperties(sd).emission);
-
-        BSDFProperties bsdf = mi.getProperties(sd);
-
-        float3 f_y = energy * bsdf.diffuseReflectionAlbedo * cosj_curr;
-        hashGrid[gridIndex] = f_y;
-
-
-        // print("energy", energy);
-        // print("bsdf", bsdf.diffuseReflectionAlbedo);
-        // // print("G_curr", G_curr);
-        // // print("pdf_curr", pdf_curr);
-        // print("f_y", f_y);
-
-        // hashGrid[gridIndex] = max(primaryRayDir, float3(0.0, 0.0, 0.0));
-        // hashGrid.InterlockedAddF32(shootIndex * 12, -f_y.x);
-        // hashGrid.InterlockedAddF32(shootIndex * 12 + 4, -f_y.y);
-        // hashGrid.InterlockedAddF32(shootIndex * 12 + 8, -f_y.z);
-
-        // float acceptance_prob = min(1.0, g_y * T_curr / (g_y + eps));
-
-        // if (sampleNext1D(sg) < acceptance_prob)
-        // {
-        //     hashGrid[gridIndex] += ;
-        // }
-
-        // add new point for random selection
-        hashGridExplored[gridIndex] = 1;
-        uint pointNum = hashGridIntersectPointsCount[gridIndex * 2];
-        hashGridIntersectPointsCount[gridIndex * 2] = (pointNum + 1) % 10;
-        hashGridIntersectPointsCount[gridIndex * 2 + 1] = max(hashGridIntersectPointsCount[gridIndex * 2 + 1], pointNum + 1);
-        hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].pos = hitOrigin;
-        hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].dir = sd.faceN;
     }
+    unlock(shootIndex);
 }
