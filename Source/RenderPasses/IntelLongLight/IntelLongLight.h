@@ -93,7 +93,7 @@ private:
 
 
     uint mHashTableSize = 10000000;
-    float mHashTableScale = 0.03f;
+    float mHashTableScale = 0.01f;
     /// Buffer for hash grid.
     // TODO: change to two buffers
     ref<Buffer> mpHashGridBuffer; // mpHashGridUnshotBuffer;

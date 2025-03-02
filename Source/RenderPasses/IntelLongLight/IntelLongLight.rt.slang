@@ -446,7 +446,7 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // print("hashGridIntersectPointspos", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].pos);
         // print("hashGridIntersectPoints", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].dir);
 
-        float3 value = hashGrid[gridIndex];// + hashGridAccum[gridIndex];
+        float3 value = hashGrid[gridIndex] + hashGridAccum[gridIndex];
 
         // cell area
         //TODO: need to work on correctness

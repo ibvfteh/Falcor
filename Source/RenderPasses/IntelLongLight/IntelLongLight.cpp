@@ -128,7 +128,8 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext, uin
     if (!mpMarkovChainPass) return;
 
     auto var = mpMarkovChainPass->getRootVar();
-    var["hashGrid"] = mpHashGridBuffer;
+    // var["hashGrid"] = mpHashGridBuffer;
+    var["hashGridbuff"] = mpHashGridBuffer;
     var["hashGridAccum"] = mpHashGridAccBuffer;
     var["lockBuffer"] = mpHashGridLockBuffer;
     var["hashGridExplored"] = mpHashGridExploredBuffer;
@@ -165,6 +166,7 @@ void IntelLongLight::executeLightDepositShader(RenderContext* pRenderContext)
     var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
     var["PerFrameCB"]["gFrameCount"] = mFrameCount;
     var["PerFrameCB"]["gInstanceCount"] = mLightDepositSampleCount;
+    var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
 
     mpScene->bindShaderData(var["gScene"]);
 
@@ -210,6 +212,9 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     // Create buffer if doesnt exist yet
     if (!mpHashGridBuffer)
     {
+        // mpHashGridBuffer = mpDevice->createBuffer(
+        //     3 * sizeof(float) * mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        // );
         mpHashGridBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
@@ -303,6 +308,7 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     // TODO: add slider ImGUI
     var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
     var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
+    var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
 
     // Bind  buffers
     var["hashGrid"] = mpHashGridBuffer;
@@ -334,7 +340,7 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     //Execute Light Deposit Pass
     executeLightDepositShader(pRenderContext);
 
-    for (uint i = 0; i < 0; i++)
+    for (uint i = 0; i < 10; i++)
     {
         executeHashGridCDFShader(pRenderContext);
 

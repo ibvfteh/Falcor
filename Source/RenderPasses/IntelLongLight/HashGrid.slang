@@ -109,11 +109,11 @@ uint encodeDirection(float3 dir) {
  * Computes the hash grid index for a given position.
  */
 uint hashGridGetIndex(float3 position, float3 direction) {
-    uint numStructs, stride;
-    hashGrid.GetDimensions(numStructs, stride);
+    // uint numStructs, stride;
+    // hashGrid.GetDimensions(numStructs, stride);
     const int3 idx_ = int3(floor(position / gHashGridScale));
 
     // const uint idx = hash(idx_, kSeed) % numStructs;
-    const uint idx = (hash(idx_, kSeed) * 6 + encodeDirection(direction)) % numStructs;
+    const uint idx = (hash(idx_, kSeed) * 6 + encodeDirection(direction)) % gHashTableSize;
     return idx;
 }

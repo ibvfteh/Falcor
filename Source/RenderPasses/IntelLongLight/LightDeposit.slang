@@ -29,9 +29,9 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     if (dispatchThreadId.x >= gInstanceCount) return; // Over the limit
 
     // // For Pixel Debug
-    // printSetPixel(uint2(dispatchThreadId.x, 0));
-    printSetPixel(uint2(0, 0));
-    print("index", dispatchThreadId.x);
+    printSetPixel(uint2(dispatchThreadId.x, 0));
+    // printSetPixel(uint2(0, 0));
+    // print("index", dispatchThreadId.x);
     // // print("LightCount", gScene.getLightCount());
     // print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
@@ -75,17 +75,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // float3 Be = Le * M_PI;
     // float3 depositedEnergy = Be;
 
-    // print("hashGrid[gridIndex]p", hashGrid[gridIndex]);
-
-    // print("Le", Le);
-    // print("Be", Be);
-    // print("gHashGridScale", gHashGridScale);
-    // print("kSeed", kSeed);
-    // print("depositedEnergy", depositedEnergy);
-
-    // Atomically accumulate into the hash grid
-    // TODO: change to InterlockedAddF32
-
+    // Accumulate into the hash grid
     hashGridbuff.InterlockedAddF32(gridIndex * 12, samplePhie.x);
     hashGridbuff.InterlockedAddF32(gridIndex * 12 + 4, samplePhie.y);
     hashGridbuff.InterlockedAddF32(gridIndex * 12 + 8, samplePhie.z);
