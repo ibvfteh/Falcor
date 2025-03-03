@@ -215,41 +215,41 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // Subtract energy from hashgrid
     float original1;
-    float value = asfloat(hashGridbuff.Load(shootIndex * 12));
+    float value = asfloat(hashGridUnshot.Load(shootIndex * 12));
     if (value < 0.0f)
         return;
     energy.x = value / energy_devidor;
-    hashGridbuff.InterlockedAddF32(shootIndex * 12, -energy.x, original1);
+    hashGridUnshot.InterlockedAddF32(shootIndex * 12, -energy.x, original1);
     if (original1 - energy.x < 0)
     {
-        hashGridbuff.InterlockedAddF32(shootIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
         return;
     }
 
     float original2;
-    value = asfloat(hashGridbuff.Load(shootIndex * 12 + 4));
+    value = asfloat(hashGridUnshot.Load(shootIndex * 12 + 4));
     if (value < 0.0f)
         return;
     energy.y = value / energy_devidor;
-    hashGridbuff.InterlockedAddF32(shootIndex * 12 + 4, -energy.y, original2);
+    hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, -energy.y, original2);
     if (original2 - energy.y < 0)
     {
-        hashGridbuff.InterlockedAddF32(shootIndex * 12, energy.x);
-        hashGridbuff.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
         return;
     }
 
     float original3;
-    value = asfloat(hashGridbuff.Load(shootIndex * 12 + 8));
+    value = asfloat(hashGridUnshot.Load(shootIndex * 12 + 8));
     if (value < 0.0f)
         return;
     energy.z = value / energy_devidor;
-    hashGridbuff.InterlockedAddF32(shootIndex * 12 + 8, -energy.z, original3);
+    hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 8, -energy.z, original3);
     if (original3 - energy.z < 0)
     {
-        hashGridbuff.InterlockedAddF32(shootIndex * 12, energy.x);
-        hashGridbuff.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
-        hashGridbuff.InterlockedAddF32(shootIndex * 12 + 8, energy.z);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
+        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 8, energy.z);
         return;
     }
 
@@ -316,9 +316,9 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
             //     hashGrid[hitGridIndex] += f_y;
             // }
             // unlock(hitGridIndex);
-            hashGridbuff.InterlockedAddF32(hitGridIndex * 12, f_y.x);
-            hashGridbuff.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y);
-            hashGridbuff.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z);
+            hashGridUnshot.InterlockedAddF32(hitGridIndex * 12, f_y.x);
+            hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y);
+            hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z);
 
             // Save State
             markovChainStates[dispatchThreadId.x].init = 1;
@@ -377,7 +377,10 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
                 print("f_y", f_y);
 
-                hashGrid[hitGridIndex] +=  f_y / g_y;
+                // hashGridUnshot[hitGridIndex] += f_y / g_y;
+                hashGridUnshot.InterlockedAddF32(hitGridIndex * 12, f_y.x / g_y);
+                hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y / g_y);
+                hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z / g_y);
 
                 // Save State
                 markovChainStates[dispatchThreadId.x].init = 1;
@@ -390,11 +393,12 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
         // add new point for random selection
         hashGridExplored[hitGridIndex] = 1;
-        uint pointNum = hashGridIntersectPointsCount[hitGridIndex * 2];
-        hashGridIntersectPointsCount[hitGridIndex * 2] = (pointNum + 1) % 10;
-        hashGridIntersectPointsCount[hitGridIndex * 2 + 1] = max(hashGridIntersectPointsCount[hitGridIndex * 2 + 1], pointNum + 1);
-        hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].pos = hitOrigin;
-        hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].dir = hitNormal;
+        addIntersectionPoint(hitGridIndex, hitOrigin, hitNormal);
+        // uint pointNum = hashGridIntersectPointsCount[hitGridIndex * 2];
+        // hashGridIntersectPointsCount[hitGridIndex * 2] = (pointNum + 1) % 10;
+        // hashGridIntersectPointsCount[hitGridIndex * 2 + 1] = max(hashGridIntersectPointsCount[hitGridIndex * 2 + 1], pointNum + 1);
+        // hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].pos = hitOrigin;
+        // hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].dir = hitNormal;
     }
     // }
     // unlock(shootIndex);

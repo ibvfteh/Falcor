@@ -431,6 +431,8 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // Get hash index
         uint gridIndex = hashGridGetIndex(rayOrigin, hitNormal);
 
+        // addIntersectionPoint(gridIndex, rayOrigin, hitNormal);
+
         // print("gridIndex", gridIndex);
         // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
         // print("gScene.getLightCount()", gScene.getLightCount());
@@ -446,18 +448,21 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // print("hashGridIntersectPointspos", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].pos);
         // print("hashGridIntersectPoints", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].dir);
 
-        float3 value = hashGrid[gridIndex] + hashGridAccum[gridIndex];
+        float3 value = hashGridAccum[gridIndex]; // + hashGridUnshot[gridIndex];
 
         // cell area
         //TODO: need to work on correctness
         float area = gHashGridScale * gHashGridScale;
 
+        float parea = getArea(gridIndex);
+
         outColor = max(value, float3(0.0f, 0.0f, 0.0f)) / M_PI;
 
-        outColor = outColor / area;
+        outColor = outColor / parea;
 
         print("hashGrid", value);
-        print("area", area);
+        print("true_area", area);
+        print("pred_area", parea);
 
         print("outColor", outColor);
 

@@ -1,6 +1,5 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
-#include "Utils/NVAPI.slangh"
 
 import Scene.Scene;
 import Utils.Sampling.SampleGenerator;
@@ -76,9 +75,9 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // float3 depositedEnergy = Be;
 
     // Accumulate into the hash grid
-    hashGridbuff.InterlockedAddF32(gridIndex * 12, samplePhie.x);
-    hashGridbuff.InterlockedAddF32(gridIndex * 12 + 4, samplePhie.y);
-    hashGridbuff.InterlockedAddF32(gridIndex * 12 + 8, samplePhie.z);
+    hashGridUnshot.InterlockedAddF32(gridIndex * 12, samplePhie.x);
+    hashGridUnshot.InterlockedAddF32(gridIndex * 12 + 4, samplePhie.y);
+    hashGridUnshot.InterlockedAddF32(gridIndex * 12 + 8, samplePhie.z);
     // hashGrid[gridIndex] += depositedEnergy;
     // if (lock(gridIndex))
     // {
@@ -100,9 +99,5 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // add new point for random selection
     hashGridExplored[gridIndex] = 1;
-    uint pointNum = hashGridIntersectPointsCount[gridIndex * 2];
-    hashGridIntersectPointsCount[gridIndex * 2] = (pointNum + 1) % 10;
-    hashGridIntersectPointsCount[gridIndex * 2 + 1] = max(hashGridIntersectPointsCount[gridIndex * 2 + 1], pointNum + 1);
-    hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].pos = posW;
-    hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount + pointNum].dir = tri.normal;
+    addIntersectionPoint(gridIndex, posW, tri.normal);
 }

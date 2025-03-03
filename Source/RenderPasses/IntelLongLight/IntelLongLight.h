@@ -71,6 +71,7 @@ private:
     void executeLightDepositShader(RenderContext* pRenderContext);
     void executeHashGridCDFShader(RenderContext* pRenderContext);
     void executeMarkovChainShader(RenderContext* pRenderContext, uint iteration);
+    void executeAveragingShader(RenderContext* pRenderContext);
 
     // Internal state
 
@@ -93,22 +94,35 @@ private:
 
 
     uint mHashTableSize = 10000000;
-    float mHashTableScale = 0.01f;
+    float mHashTableScale = 0.05f;
     /// Buffer for hash grid.
     // TODO: change to two buffers
-    ref<Buffer> mpHashGridBuffer; // mpHashGridUnshotBuffer;
-    ref<Buffer> mpHashGridLockBuffer; // mpHashGridUnshotBuffer;
-    ref<Buffer> mpHashGridAccBuffer; // Buffer for accumulated radiosity, add it with unshot in the final output render
+    ref<Buffer> mpHashGridUnshotBuffer;    // mpHashGridUnshotBuffer;
+    ref<Buffer> mpHashGridAccumBuffer; // Buffer for accumulated radiosity
+    ref<Buffer> mpHashGridAccumAverageBuffer; // Result Buffer with averaging over frames
+
+    ref<Buffer> mpHashGridFingerprintsBuffer;
+    ref<Buffer> mpHashGridLockBuffer;
     /// Buffer for building CDF of a hash grid.
     ref<Buffer> mpHashGridExploredBuffer;
     ref<Buffer> mpHashGridCDFBuffer;
     ref<Buffer> mpHashGridCDFSumBuffer;
     // Buffer that has number of known intersetcion points for every cache cell
-    uint mMaxIntersectPointCount = 4;
+    uint mMaxIntersectPointCount = 10;
     ref<Buffer> mpHashGridIntersectPoints;
     ref<Buffer> mpHashGridIntersectPointCount;
-    // TODO: change to two buffers
-    ref<Buffer> mpMarkovChainStatesBuffer; // mpHashGridUnshotBuffer;
+
+    ref<Buffer> mpMarkovChainStatesBuffer;
+
+    // Area calculations
+    ref<Buffer> mpHashTotalAreaBuffer;
+    ref<Buffer> mpHashCountBuffer;
+    ref<Buffer> mpHashAreaLockBuffer;
+
+    // GAUSS TODO:
+    // ref<Buffer> mpHashGridMeanBuffer;
+    // ref<Buffer> mpHashGridVarBuffer;
+    // ref<Buffer> mpHashGridCountBuffer;
 
     // Runtime data
 
@@ -125,14 +139,18 @@ private:
     } mTracer;
 
     // Light Deposit Compute Pass
-    uint mLightDepositSampleCount = 256 * 400;
+    uint mLightDepositSampleCount = 100000; //256 * 400;
     ref<ComputePass> mpLightDepositPass;
 
     // Compute passes used to build the CDF of hash grid to select samples.
     std::unique_ptr<PrefixSum> mpPrefixSumPass;
 
-    // Marcov Chain Monte Carlo
+    // Marcov Chain Monte CarloPass
     uint mMarkovChainsCount = 40000;
     uint mMarcovChainsIterationsCount = 1;
     ref<ComputePass> mpMarkovChainPass;
+
+    // Hash grid averaging Pass
+    float mAccumEMACoeff = 0.001f;
+    ref<ComputePass> mpAveragingPass;
 };
