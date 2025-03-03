@@ -408,15 +408,15 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     mpPixelDebug->beginFrame(pRenderContext, targetDim);
     mpPixelDebug->prepareProgram(mTracer.pProgram, var);
 
-    //Execute Light Deposit Pass
-    executeLightDepositShader(pRenderContext);
-
     for (uint i = 0; i < 1; i++)
     {
+        // Deposit Flux from the light sources Pass
+        executeLightDepositShader(pRenderContext);
+        // Collect a CDF over all explored patches
         executeHashGridCDFShader(pRenderContext);
-
+        // Do a markov chain iteration
         executeMarkovChainShader(pRenderContext, i);
-
+        // Average out the accumulated radiance
         executeAveragingShader(pRenderContext);
     }
 
