@@ -1,5 +1,5 @@
 /***************************************************************************
- # Copyright (c) 2015-22, NVIDIA CORPORATION. All rights reserved.
+ # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without
  # modification, are permitted provided that the following conditions
@@ -26,25 +26,26 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
+#include "Falcor.h"
+#include "RenderGraph/RenderPass.h"
 
-/** Static configuration of the BSDF models.
+using namespace Falcor;
 
-    The defaults can be overridden by passing in defines from the host.
+class PosNegPass : public RenderPass
+{
+public:
+    FALCOR_PLUGIN_CLASS(PosNegPass, "PosNegPass", "Computes luminance difference between reference and test images.");
 
-    TODO: This file will be removed when we've settled on a new standard material definition.
-*/
+    static ref<PosNegPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<PosNegPass>(pDevice, props); }
 
-#define DiffuseBrdfLambert      0
-#define DiffuseBrdfDisney       1
-#define DiffuseBrdfFrostbite    2
+    PosNegPass(ref<Device> pDevice, const Properties& props);
 
-#ifndef DiffuseBrdf
-#define DiffuseBrdf DiffuseBrdfLambert
-#endif
+    virtual RenderPassReflection reflect(const CompileData& compileData) override;
+    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void renderUI(Gui::Widgets& widget) override;
+    virtual Properties getProperties() const override;
 
-#define SpecularMaskingFunctionSmithGGXSeparable    0       ///< Used by UE4.
-#define SpecularMaskingFunctionSmithGGXCorrelated   1       ///< Used by Frostbite. This is the more accurate form (default).
-
-#ifndef SpecularMaskingFunction
-#define SpecularMaskingFunction SpecularMaskingFunctionSmithGGXCorrelated
-#endif
+private:
+    ref<ComputePass> mpComputePass;
+    float mScaleFactor = 1.0f; // Scaling factor for visualization
+};

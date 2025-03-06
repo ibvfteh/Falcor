@@ -146,7 +146,7 @@ private:
     std::unique_ptr<PrefixSum> mpPrefixSumPass;
 
     // Marcov Chain Monte CarloPass
-    uint mMarkovChainsCount = 40000;
+    uint mMarkovChainsCount = 400000;
     uint mMarcovChainsIterationsCount = 1;
     ref<ComputePass> mpMarkovChainPass;
 

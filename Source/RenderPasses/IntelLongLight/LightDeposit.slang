@@ -51,10 +51,14 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // Sample the triangle uniformly.
     const float3 barycentrics = sample_triangle(u);
     float3 posW = tri.getPosition(barycentrics);
+
+    // Get origin with offset applied in direction of the geometry normal to avoid self-intersection.
+    const float3 rayOrigin = computeRayOrigin(posW, tri.normal);
+
     float area = tri.area;
 
     // // Compute hash grid index for sampled light position
-    uint gridIndex = hashGridGetIndex(posW, tri.normal);
+    uint gridIndex = hashGridGetIndex(rayOrigin, tri.normal);
 
     // float sampleArea = tri.area / (float(gInstanceCount) / triangleCount);
 
@@ -99,5 +103,5 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // add new point for random selection
     hashGridExplored[gridIndex] = 1;
-    addIntersectionPoint(gridIndex, posW, tri.normal);
+    addIntersectionPoint(gridIndex, rayOrigin, tri.normal);
 }

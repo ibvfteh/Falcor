@@ -41,7 +41,7 @@ struct GaussianArea
 };
 
 // Hash Grid
-// RWStructuredBuffer<float3> hashGridUnshot;                // Stores light energy in hash cells
+RWStructuredBuffer<float3> hashGridUnshotStr;                // Stores light energy in hash cells
 RWStructuredBuffer<uint> hashFingerprints;          // Stores fingerprints for collision prevention
 
 RWStructuredBuffer<Itersect> hashGridIntersectPoints;     // Stores intersection points in hash cells.
@@ -230,6 +230,8 @@ float getArea(uint index)
     if (original == 0) { // Lock acquired
         float newArea = computeBoundingRectangleArea(index);
 
+        newArea = max(newArea, gHashGridScale * gHashGridScale * 0.01);
+
         // Increment count
         uint count;
         hashCountBuffer.InterlockedAdd(index * 4, 1, count);
@@ -241,7 +243,7 @@ float getArea(uint index)
         hashAreaLockBuffer.InterlockedExchange(index, 0, original);
     }
 
-    return 1.56 * area;
+    return M_PI * area / 2;
     // return 1.388 * area;
 }
 

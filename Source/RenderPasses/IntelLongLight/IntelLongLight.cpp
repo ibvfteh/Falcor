@@ -129,15 +129,10 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext, uin
     if (!mpMarkovChainPass) return;
 
     auto var = mpMarkovChainPass->getRootVar();
-    // var["hashGrid"] = mpHashGridUnshotBuffer;
+    // Main buffers
     var["hashGridUnshot"] = mpHashGridUnshotBuffer;
     var["hashFingerprints"] = mpHashGridFingerprintsBuffer;
     var["hashGridAccum"] = mpHashGridAccumBuffer;
-    // GAUSS TODO:
-    // var["hashGridMeanBuffer"] = mpHashGridMeanBuffer;
-    // var["hashGridVarBuffer"] = mpHashGridVarBuffer;
-    // var["hashGridCountBuffer"] = mpHashGridCountBuffer;
-
     var["lockBuffer"] = mpHashGridLockBuffer;
     // Explored cells
     var["hashGridExplored"] = mpHashGridExploredBuffer;
@@ -149,6 +144,12 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext, uin
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
     // Chains
     var["markovChainStates"] = mpMarkovChainStatesBuffer;
+    // GAUSS TODO:
+    // var["hashGridMeanBuffer"] = mpHashGridMeanBuffer;
+    // var["hashGridVarBuffer"] = mpHashGridVarBuffer;
+    // var["hashGridCountBuffer"] = mpHashGridCountBuffer;
+
+    // Constants
     var["HashGridCB"]["gHashGridScale"] = mHashTableScale;
     var["HashGridCB"]["gMaxIntersectPointCount"] = mMaxIntersectPointCount;
     var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
@@ -372,7 +373,10 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     // Bind  buffers
     // var["hashGrid"] = mpHashGridUnshotBuffer;
     var["hashFingerprints"] = mpHashGridFingerprintsBuffer;
+    // TMP TODO:
     var["hashGridAccum"] = mpHashGridAccumAverageBuffer;
+    var["hashGridUnshotStr"] = mpHashGridUnshotBuffer;
+    // var["hashGridAccum"] = mpHashGridAccumBuffer;
 
     // Area Calculations
     var["hashTotalAreaBuffer"] = mpHashTotalAreaBuffer;

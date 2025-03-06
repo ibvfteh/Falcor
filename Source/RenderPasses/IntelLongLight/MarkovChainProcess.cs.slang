@@ -151,8 +151,8 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("totalHashCDFSum", totalHashCDFSum);
     // print("searchValue", searchValue);
 
-    uint shootIndex = binarySearchHashGridCDFIndex(searchValue, gHashTableSize);
-    float pointPDF = (hashGridCDF[shootIndex] - hashGridCDF[shootIndex - 1]) / totalHashCDFSum;
+    uint shootGridIndex = binarySearchHashGridCDFIndex(searchValue, gHashTableSize);
+    float pointPDF = (hashGridCDF[shootGridIndex] - hashGridCDF[shootGridIndex - 1]) / totalHashCDFSum;
 
     // print("idx", idx);
 
@@ -167,16 +167,16 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     randomValue = sampleNext1D(sg);
 
     // print("hashGridIntersectPointsCount", hashGridIntersectPointsCount[idx * 2 + 1]);
-    uint intersectionPointIndex = (uint)(hashGridIntersectPointsCount[shootIndex * 2 + 1] * randomValue);
+    uint intersectionPointIndex = (uint)(hashGridIntersectPointsCount[shootGridIndex * 2 + 1] * randomValue);
     // print("intersectionPointIndex", intersectionPointIndex);
-    float3 primaryRayOrigin = hashGridIntersectPoints[shootIndex * gMaxIntersectPointCount + intersectionPointIndex].pos;
+    float3 primaryRayOrigin = hashGridIntersectPoints[shootGridIndex * gMaxIntersectPointCount + intersectionPointIndex].pos;
 
     // print("rayOrigin", primaryRayOrigin);
 
     // Generate a random direction
-    float3 normal = hashGridIntersectPoints[shootIndex * gMaxIntersectPointCount + intersectionPointIndex].dir;
+    float3 shotNormal = hashGridIntersectPoints[shootGridIndex * gMaxIntersectPointCount + intersectionPointIndex].dir;
 
-    // print("rayNormal", normal);
+    // print("rayNormal", shotNormal);
 
     float cosinePDF;
     float3 localDir = sample_cosine_hemisphere_concentric(sampleNext2D(sg), cosinePDF);
@@ -184,21 +184,21 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // float3 localDir = sample_hemisphere(sampleNext2D(sg));
     // Generate an orthonormal basis from the normal.
     float3 tangent, bitangent;
-    branchlessONB(normal, tangent, bitangent);
+    branchlessONB(shotNormal, tangent, bitangent);
     // Transform local sample to world space.
-    float3 primaryRayDir = tangent * localDir.x +  bitangent * localDir.y + normal * localDir.z;
+    float3 primaryRayDir = tangent * localDir.x +  bitangent * localDir.y + shotNormal * localDir.z;
 
     // print("shootDir", primaryRayDir);
 
-    // float energyx = asfloat(hashGrid.Load(shootIndex * 12));
-    // float energyy = asfloat(hashGrid.Load(shootIndex * 12 + 4));
-    // float energyz = asfloat(hashGrid.Load(shootIndex * 12 + 8));
+    // float energyx = asfloat(hashGrid.Load(shootGridIndex * 12));
+    // float energyy = asfloat(hashGrid.Load(shootGridIndex * 12 + 4));
+    // float energyz = asfloat(hashGrid.Load(shootGridIndex * 12 + 8));
     // float3 energy = float3(energyx, energyy, energyz);
-    // hashGrid.InterlockedAddF32(shootIndex * 12, -energy.x);
-    // hashGrid.InterlockedAddF32(shootIndex * 12 + 4, -energy.y);
-    // hashGrid.InterlockedAddF32(shootIndex * 12 + 8, -energy.z);
+    // hashGrid.InterlockedAddF32(shootGridIndex * 12, -energy.x);
+    // hashGrid.InterlockedAddF32(shootGridIndex * 12 + 4, -energy.y);
+    // hashGrid.InterlockedAddF32(shootGridIndex * 12 + 8, -energy.z);
 
-    // print("hashGrid[shootIndex]", hashGrid[shootIndex]);
+    // print("hashGrid[shootGridIndex]", hashGrid[shootGridIndex]);
 
     // Define and trace the ray
     const Ray ray = Ray(primaryRayOrigin, primaryRayDir, 0.001f, 1000.0f);
@@ -215,61 +215,61 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     // Subtract energy from hashgrid
     float original1;
-    float value = asfloat(hashGridUnshot.Load(shootIndex * 12));
+    float value = asfloat(hashGridUnshot.Load(shootGridIndex * 12));
     if (value < 0.0f)
         return;
     energy.x = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootIndex * 12, -energy.x, original1);
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, -energy.x, original1);
     if (original1 - energy.x < 0)
     {
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
         return;
     }
 
     float original2;
-    value = asfloat(hashGridUnshot.Load(shootIndex * 12 + 4));
+    value = asfloat(hashGridUnshot.Load(shootGridIndex * 12 + 4));
     if (value < 0.0f)
         return;
     energy.y = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, -energy.y, original2);
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, -energy.y, original2);
     if (original2 - energy.y < 0)
     {
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
         return;
     }
 
     float original3;
-    value = asfloat(hashGridUnshot.Load(shootIndex * 12 + 8));
+    value = asfloat(hashGridUnshot.Load(shootGridIndex * 12 + 8));
     if (value < 0.0f)
         return;
     energy.z = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 8, -energy.z, original3);
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 8, -energy.z, original3);
     if (original3 - energy.z < 0)
     {
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12, energy.x);
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
-        hashGridUnshot.InterlockedAddF32(shootIndex * 12 + 8, energy.z);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 8, energy.z);
         return;
     }
 
 
-    hashGridAccum.InterlockedAddF32(shootIndex * 12, energy.x);
-    hashGridAccum.InterlockedAddF32(shootIndex * 12 + 4, energy.y);
-    hashGridAccum.InterlockedAddF32(shootIndex * 12 + 8, energy.z);
+    hashGridAccum.InterlockedAddF32(shootGridIndex * 12, energy.x);
+    hashGridAccum.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
+    hashGridAccum.InterlockedAddF32(shootGridIndex * 12 + 8, energy.z);
 
 
-    // if (lock (shootIndex))
+    // if (lock (shootGridIndex))
     // {
-    //     if (all(hashGrid[shootIndex] <= float3(0.0f, 0.0f, 0.0f)))
+    //     if (all(hashGrid[shootGridIndex] <= float3(0.0f, 0.0f, 0.0f)))
     //     {
-    //         unlock(shootIndex);
+    //         unlock(shootGridIndex);
     //         return;
     //     }
-    //     energy = hashGrid[shootIndex] / 1;
-    //     hashGrid[shootIndex] -= energy;
-    //     hashGridAccum[shootIndex] += energy;
-    //     unlock(shootIndex);
+    //     energy = hashGrid[shootGridIndex] / 1;
+    //     hashGrid[shootGridIndex] -= energy;
+    //     hashGridAccum[shootGridIndex] += energy;
+    //     unlock(shootGridIndex);
 
 
     if (hit.isValid())
@@ -298,18 +298,31 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 
         // print("markovChainStates.init", markovChainStates[dispatchThreadId.x].init);
 
+        // add new point for random selection
+        hashGridExplored[hitGridIndex] = 1;
+        addIntersectionPoint(hitGridIndex, hitOrigin, hitNormal);
+
         // No previous stae
         if (true)
         // if (markovChainStates[dispatchThreadId.x].init == 0)
         {
-            float cosj_curr = dot(normal, primaryRayDir);
+            float cosi_curr = dot(hitNormal, -primaryRayDir);
+            float cosj_curr = dot(shotNormal, primaryRayDir);
 
             let lod = ExplicitLodTextureSampler(0.f);
             let mi = gScene.materials.getMaterialInstance(sd, lod);
 
             BSDFProperties bsdf = mi.getProperties(sd);
+            // TODO:
+            // float3 weight = mi.eval(sd, shotNormal, sg);
 
-            float3 f_y = energy * bsdf.diffuseReflectionAlbedo * cosj_curr;
+            // float F = max(cosi_curr * cosj_curr, 0) / (M_PI);
+
+            float3 f_y = energy * bsdf.diffuseReflectionAlbedo;
+
+            // float F = max(cosi_curr * cosj_curr, 0) / (M_PI);
+
+            // float3 f_y = energy * bsdf.diffuseReflectionAlbedo * cosj_curr;
 
             // if (lock (hitGridIndex))
             // {
@@ -320,17 +333,21 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
             hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y);
             hashGridUnshot.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z);
 
+            // hashGridAccum.InterlockedAddF32(hitGridIndex * 12, f_y.x);
+            // hashGridAccum.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y);
+            // hashGridAccum.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z);
+
             // Save State
             markovChainStates[dispatchThreadId.x].init = 1;
             markovChainStates[dispatchThreadId.x].point1 = hitOrigin;
             markovChainStates[dispatchThreadId.x].normal1 = hitNormal;
             markovChainStates[dispatchThreadId.x].point2 = primaryRayOrigin;
-            markovChainStates[dispatchThreadId.x].normal2 = normal;
+            markovChainStates[dispatchThreadId.x].normal2 = shotNormal;
         }
         else
         {
             float cosi_curr = dot(hitNormal, -primaryRayDir);
-            float cosj_curr = dot(normal, primaryRayDir);
+            float cosj_curr = dot(shotNormal, primaryRayDir);
             float eps = 1e-18;
             float G_curr = max(cosi_curr * cosj_curr, 0) / (M_PI * hitT * hitT + eps);
 
@@ -387,19 +404,10 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
                 markovChainStates[dispatchThreadId.x].point1 = hitOrigin;
                 markovChainStates[dispatchThreadId.x].normal1 = hitNormal;
                 markovChainStates[dispatchThreadId.x].point2 = primaryRayOrigin;
-                markovChainStates[dispatchThreadId.x].normal2 = normal;
+                markovChainStates[dispatchThreadId.x].normal2 = shotNormal;
             }
         }
-
-        // add new point for random selection
-        hashGridExplored[hitGridIndex] = 1;
-        addIntersectionPoint(hitGridIndex, hitOrigin, hitNormal);
-        // uint pointNum = hashGridIntersectPointsCount[hitGridIndex * 2];
-        // hashGridIntersectPointsCount[hitGridIndex * 2] = (pointNum + 1) % 10;
-        // hashGridIntersectPointsCount[hitGridIndex * 2 + 1] = max(hashGridIntersectPointsCount[hitGridIndex * 2 + 1], pointNum + 1);
-        // hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].pos = hitOrigin;
-        // hashGridIntersectPoints[hitGridIndex * gMaxIntersectPointCount + pointNum].dir = hitNormal;
     }
     // }
-    // unlock(shootIndex);
+    // unlock(shootGridIndex);
 }
