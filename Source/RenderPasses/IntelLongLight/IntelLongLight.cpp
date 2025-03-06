@@ -1,30 +1,3 @@
-/***************************************************************************
- # Copyright (c) 2015-23, NVIDIA CORPORATION. All rights reserved.
- #
- # Redistribution and use in source and binary forms, with or without
- # modification, are permitted provided that the following conditions
- # are met:
- #  * Redistributions of source code must retain the above copyright
- #    notice, this list of conditions and the following disclaimer.
- #  * Redistributions in binary form must reproduce the above copyright
- #    notice, this list of conditions and the following disclaimer in the
- #    documentation and/or other materials provided with the distribution.
- #  * Neither the name of NVIDIA CORPORATION nor the names of its
- #    contributors may be used to endorse or promote products derived
- #    from this software without specific prior written permission.
- #
- # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS "AS IS" AND ANY
- # EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- # PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- # CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- # PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- # PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- **************************************************************************/
 #include "IntelLongLight.h"
 #include "Scene/HitInfo.h"
 #include "RenderGraph/RenderPassHelpers.h"
@@ -67,6 +40,12 @@ const ChannelList kOutputChannels = {
 const char kMaxBounces[] = "maxBounces";
 const char kComputeDirect[] = "computeDirect";
 const char kUseImportanceSampling[] = "useImportanceSampling";
+//MY
+const char kHashTableScale[] = "HashTableScale";
+const char kLightDepositSampleCount[] = "LightDepositSampleCount";
+const char kMarkovChainsCount[] = "MarkovChainsCount";
+const char kMarkovChainsIterationsCount[] = "MarkovChainsIterationsCount";
+const char kAccumEMACoeff[] = "AccumEMACoeff";
 } // namespace
 
 IntelLongLight::IntelLongLight(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -90,14 +69,15 @@ void IntelLongLight::parseProperties(const Properties& props)
 {
     for (const auto& [key, value] : props)
     {
-        if (key == kMaxBounces)
-            mMaxBounces = value;
-        else if (key == kComputeDirect)
-            mComputeDirect = value;
-        else if (key == kUseImportanceSampling)
-            mUseImportanceSampling = value;
-        else
-            logWarning("Unknown property '{}' in IntelLongLight properties.", key);
+        if (key == kMaxBounces) mMaxBounces = value;
+        else if (key == kComputeDirect) mComputeDirect = value;
+        else if (key == kUseImportanceSampling) mUseImportanceSampling = value;
+        else if (key == kHashTableScale) mHashTableScale = value;
+        else if (key == kLightDepositSampleCount) mLightDepositSampleCount = value;
+        else if (key == kMarkovChainsCount) mMarkovChainsCount = value;
+        else if (key == kMarkovChainsIterationsCount) mMarcovChainsIterationsCount = value;
+        else if (key == kAccumEMACoeff) mAccumEMACoeff = value;
+        else logWarning("Unknown property '{}' in IntelLongLight properties.", key);
     }
 }
 
@@ -107,6 +87,11 @@ Properties IntelLongLight::getProperties() const
     props[kMaxBounces] = mMaxBounces;
     props[kComputeDirect] = mComputeDirect;
     props[kUseImportanceSampling] = mUseImportanceSampling;
+    props[kHashTableScale] = mHashTableScale;
+    props[kLightDepositSampleCount] = mLightDepositSampleCount;
+    props[kMarkovChainsCount] = mMarkovChainsCount;
+    props[kMarkovChainsIterationsCount] = mMarcovChainsIterationsCount;
+    props[kAccumEMACoeff] = mAccumEMACoeff;
     return props;
 }
 
@@ -229,6 +214,11 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
         mOptionsChanged = false;
+    }
+    if(mUpdateHash)
+    {
+        zeroOutHashBuffers(pRenderContext);
+        mUpdateHash = false;
     }
 
     // If we have no scene, just clear the outputs and return.
@@ -422,6 +412,8 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         executeMarkovChainShader(pRenderContext, i);
         // Average out the accumulated radiance
         executeAveragingShader(pRenderContext);
+        // Clear Accumulated buffer of this iteration
+        pRenderContext->clearUAV(mpHashGridAccumBuffer->getUAV().get(), uint4(0));
     }
 
     // Spawn the rays.
@@ -432,18 +424,12 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     // Clean Hash  Grid
     // pRenderContext->clearUAV(mpHashGridUnshotBuffer->getUAV().get(), uint4(0));
-    pRenderContext->clearUAV(mpHashGridAccumBuffer->getUAV().get(), uint4(0));
 
     // Clear Sampled Points for now
     // pRenderContext->clearUAV(mpHashGridExploredBuffer->getUAV().get(), uint4(0));
 
     // Clear MCstates for now
     // pRenderContext->clearUAV(mpMarkovChainStatesBuffer->getUAV().get(), uint4(0));
-
-
-    // pRenderContext->clearUAV(mpHashGridMeanBuffer->getUAV().get(), uint4(0));
-    // pRenderContext->clearUAV(mpHashGridVarBuffer->getUAV().get(), uint4(0));
-    // pRenderContext->clearUAV(mpHashGridCountBuffer->getUAV().get(), uint4(0));
 
     mFrameCount++;
 }
@@ -452,14 +438,29 @@ void IntelLongLight::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
 
-    dirty |= widget.var("Max bounces", mMaxBounces, 0u, 1u << 16);
+    dirty |= widget.var("Max bounces", mMaxBounces, 0u, 16u);
     widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
 
     dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
-    widget.tooltip("Compute direct illumination.\nIf disabled only indirect is computed (when max bounces > 0).", true);
-
     dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
-    widget.tooltip("Use importance sampling for materials", true);
+
+    // Configurable parameters
+    if (widget.var("Hash Table Scale", mHashTableScale, 0.001f, 1.0f, 0.001f)) {
+        mUpdateHash = true;
+        dirty = true;
+    }
+    if (widget.var("Light Deposit Sample Count", mLightDepositSampleCount, 10000u, 1000000u)) {
+        dirty = true;
+    }
+    if (widget.var("Markov Chains Count", mMarkovChainsCount, 10000u, 1000000u)) {
+        dirty = true;
+    }
+    if (widget.var("Markov Chains Iterations", mMarcovChainsIterationsCount, 1u, 100u)) {
+        dirty = true;
+    }
+    if (widget.var("Accumulation EMA Coefficient", mAccumEMACoeff, 0.0001f, 1.0f, 0.0001f)) {
+        dirty = true;
+    }
 
     // For Pixel Debug
     if (Gui::Group debug_group = widget.group("Debug"))
@@ -468,14 +469,35 @@ void IntelLongLight::renderUI(Gui::Widgets& widget)
         mpPixelDebug->renderUI(debug_group);
     }
 
-    // If rendering options that modify the output have changed, set flag to indicate that.
-    // In execute() we will pass the flag to other passes for reset of temporal data etc.
-    if (dirty)
-    {
+    if (dirty) {
         mOptionsChanged = true;
     }
 }
 
+void IntelLongLight::zeroOutHashBuffers(RenderContext* pRenderContext)
+{
+    if (!mpDevice) return;
+
+    auto clearBuffer = [&](ref<Buffer>& buffer) {
+        if (buffer) {
+            pRenderContext->clearUAV(buffer->getUAV().get(), uint4(0));
+        }
+    };
+
+    clearBuffer(mpHashGridUnshotBuffer);
+    clearBuffer(mpHashGridAccumBuffer);
+    clearBuffer(mpHashGridAccumAverageBuffer);
+    clearBuffer(mpHashGridFingerprintsBuffer);
+    clearBuffer(mpHashGridLockBuffer);
+    clearBuffer(mpHashGridExploredBuffer);
+    clearBuffer(mpHashGridCDFBuffer);
+    clearBuffer(mpHashGridCDFSumBuffer);
+    clearBuffer(mpHashGridIntersectPoints);
+    clearBuffer(mpHashGridIntersectPointCount);
+    clearBuffer(mpHashTotalAreaBuffer);
+    clearBuffer(mpHashCountBuffer);
+    clearBuffer(mpHashAreaLockBuffer);
+}
 
 void IntelLongLight::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
