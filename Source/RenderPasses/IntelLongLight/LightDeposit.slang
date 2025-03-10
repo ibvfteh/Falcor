@@ -17,7 +17,7 @@ cbuffer PerFrameCB
 }
 
 // Hash Grid
-RWStructuredBuffer<uint32_t> hashGridExplored; ///< Accumulates energy per grid cell.
+RWByteAddressBuffer hashGridExplored;          ///< Accumulates energy per grid cell.
 
 /**
  * Samples a random emissive light source and deposits its energy into the hash grid.
@@ -102,6 +102,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("hashGrid[gridIndex]", hashGrid[gridIndex]);
 
     // add new point for random selection
-    hashGridExplored[gridIndex] = 1;
+    hashGridExplored.Store(gridIndex * 4, 1.0f);
+    // hashGridExplored[gridIndex] = 1;
     addIntersectionPoint(gridIndex, rayOrigin, tri.normal);
 }

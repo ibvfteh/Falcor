@@ -41,6 +41,8 @@ const char kMaxBounces[] = "maxBounces";
 const char kComputeDirect[] = "computeDirect";
 const char kUseImportanceSampling[] = "useImportanceSampling";
 //MY
+const char kPauseMarkovChainIterations[] = "PauseMarkovChainIterations";
+const char kDisplayImportance[] = "DisplayImportance";
 const char kHashTableScale[] = "HashTableScale";
 const char kLightDepositSampleCount[] = "LightDepositSampleCount";
 const char kMarkovChainsCount[] = "MarkovChainsCount";
@@ -62,7 +64,8 @@ IntelLongLight::IntelLongLight(ref<Device> pDevice, const Properties& props) : R
     mpPixelDebug->enable();
 
     // Create a prefix sum pass
-    mpPrefixSumPass = std::make_unique<PrefixSum>(mpDevice);
+    mpPrefixSumPass = std::make_unique<PrefixSum>(mpDevice, true);
+    mpImportancePrefixSumPass = std::make_unique<PrefixSum>(mpDevice, true);
 }
 
 void IntelLongLight::parseProperties(const Properties& props)
@@ -72,6 +75,8 @@ void IntelLongLight::parseProperties(const Properties& props)
         if (key == kMaxBounces) mMaxBounces = value;
         else if (key == kComputeDirect) mComputeDirect = value;
         else if (key == kUseImportanceSampling) mUseImportanceSampling = value;
+        else if (key == kPauseMarkovChainIterations) mPauseMarkovChainIterations = value;
+        else if (key == kDisplayImportance) mDisplayImportance = value;
         else if (key == kHashTableScale) mHashTableScale = value;
         else if (key == kLightDepositSampleCount) mLightDepositSampleCount = value;
         else if (key == kMarkovChainsCount) mMarkovChainsCount = value;
@@ -87,6 +92,8 @@ Properties IntelLongLight::getProperties() const
     props[kMaxBounces] = mMaxBounces;
     props[kComputeDirect] = mComputeDirect;
     props[kUseImportanceSampling] = mUseImportanceSampling;
+    props[kPauseMarkovChainIterations] = mPauseMarkovChainIterations;
+    props[kDisplayImportance] = mDisplayImportance;
     props[kHashTableScale] = mHashTableScale;
     props[kLightDepositSampleCount] = mLightDepositSampleCount;
     props[kMarkovChainsCount] = mMarkovChainsCount;
@@ -119,11 +126,17 @@ void IntelLongLight::executeMarkovChainShader(RenderContext* pRenderContext, uin
     var["hashFingerprints"] = mpHashGridFingerprintsBuffer;
     var["hashGridAccum"] = mpHashGridAccumBuffer;
     var["lockBuffer"] = mpHashGridLockBuffer;
+    // Importance buffers
+    var["hashGridUnshotImportance"] = mpHashGridUnshotImportanceBuffer;
+    var["hashGridAccumImportance"] = mpHashGridAccumImportanceBuffer;
     // Explored cells
     var["hashGridExplored"] = mpHashGridExploredBuffer;
     // CDF
     var["hashGridCDF"] = mpHashGridCDFBuffer;
     var["hashGridCDFSum"] = mpHashGridCDFSumBuffer;
+    // Importance CDF
+    var["hashGridImportanceCDF"] = mpHashGridImportanceCDFBuffer;
+    var["hashGridImportanceCDFSum"] = mpHashGridImportanceCDFSumBuffer;
     // Intersections
     var["hashGridIntersectPoints"] = mpHashGridIntersectPoints;
     var["hashGridIntersectPointsCount"] = mpHashGridIntersectPointCount;
@@ -186,8 +199,14 @@ void IntelLongLight::executeAveragingShader(RenderContext* pRenderContext)
     if (!mpAveragingPass) return;
 
     auto var = mpAveragingPass->getRootVar();
+    // Light energy
+    var["hashGridUnshot"] = mpHashGridUnshotBuffer;
     var["hashGridAccum"] = mpHashGridAccumBuffer;
     var["hashGridAccumAvg"] = mpHashGridAccumAverageBuffer;
+    // Importance
+    var["hashGridUnshotImportance"] = mpHashGridUnshotImportanceBuffer;
+    var["hashGridAccumImportance"] = mpHashGridAccumImportanceBuffer;
+    var["hashGridAccumAvgImportance"] = mpHashGridAccumAverageImportanceBuffer;
 
     var["CB"]["gHashTableSize"] = mHashTableSize;
     var["CB"]["gAccumEMACoeff"] = mAccumEMACoeff;
@@ -197,8 +216,12 @@ void IntelLongLight::executeAveragingShader(RenderContext* pRenderContext)
 
 void IntelLongLight::executeHashGridCDFShader(RenderContext* pRenderContext)
 {
-    pRenderContext->copyBufferRegion(mpHashGridCDFBuffer.get(), 0, mpHashGridExploredBuffer.get(), 0, mHashTableSize * sizeof(uint32_t));
-    mpPrefixSumPass->execute(pRenderContext, mpHashGridCDFBuffer, mHashTableSize, nullptr, mpHashGridCDFSumBuffer);
+    // Energy
+    pRenderContext->copyBufferRegion(mpHashGridCDFBuffer.get(), 0, mpHashGridUnshotBuffer.get(), 0, mHashTableSize * sizeof(float) * 3);
+    mpPrefixSumPass->execute(pRenderContext, mpHashGridCDFBuffer, mHashTableSize * 3, nullptr, mpHashGridCDFSumBuffer);
+    // Importance
+    pRenderContext->copyBufferRegion(mpHashGridImportanceCDFBuffer.get(), 0, mpHashGridAccumAverageImportanceBuffer.get(), 0, mHashTableSize * sizeof(float));
+    mpImportancePrefixSumPass->execute(pRenderContext, mpHashGridImportanceCDFBuffer, mHashTableSize, nullptr, mpHashGridImportanceCDFSumBuffer);
 }
 
 
@@ -243,14 +266,23 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
         mpHashGridUnshotBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
-        mpHashGridFingerprintsBuffer = mpDevice->createStructuredBuffer(
-            sizeof(uint), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
-        );
         mpHashGridAccumBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
         mpHashGridAccumAverageBuffer = mpDevice->createStructuredBuffer(
             sizeof(float3), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridFingerprintsBuffer = mpDevice->createStructuredBuffer(
+            sizeof(uint), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridUnshotImportanceBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridAccumImportanceBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridAccumAverageImportanceBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
         mpHashGridLockBuffer = mpDevice->createBuffer(
             sizeof(uint) * mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
@@ -278,14 +310,20 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     if (!mpHashGridCDFBuffer)
     {
+        mpHashGridImportanceCDFBuffer = mpDevice->createStructuredBuffer(
+            sizeof(float), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+        );
+        mpHashGridImportanceCDFSumBuffer = mpDevice->createBuffer(
+            sizeof(float), ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+        );
         mpHashGridCDFBuffer = mpDevice->createStructuredBuffer(
-            sizeof(uint32_t), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+            sizeof(float) * 3, mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
         mpHashGridExploredBuffer = mpDevice->createStructuredBuffer(
-            sizeof(uint32_t), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
+            sizeof(float), mHashTableSize, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false
         );
         mpHashGridCDFSumBuffer = mpDevice->createBuffer(
-            sizeof(uint32_t), ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
+            sizeof(float), ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
         );
 
     }
@@ -299,10 +337,6 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
 
     if(!mpHashGridIntersectPoints)
     {
-        // ResourceFormat format = mpScene->getHitInfo().getFormat();
-        // mpHashGridIntersectPoints = mpDevice->createTypedBuffer(
-        //     format, mHashTableSize * mMaxIntersectPointCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
-        // );
         mpHashGridIntersectPoints = mpDevice->createStructuredBuffer(
             2 * sizeof(float3), mHashTableSize * mMaxIntersectPointCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr
         );
@@ -340,6 +374,8 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ENV_BACKGROUND", mpScene->useEnvBackground() ? "1" : "0");
+    // MY
+    mTracer.pProgram->addDefine("DISPLAY_IMPORTANCE", mDisplayImportance ? "1" : "0");
 
     // For optional I/O resources, set 'is_valid_<name>' defines to inform the program of which ones it can access.
     mTracer.pProgram->addDefines(getValidResourceDefines(kInputChannels, renderData));
@@ -361,12 +397,13 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     var["HashGridCB"]["gHashTableSize"] = mHashTableSize;
 
     // Bind  buffers
-    // var["hashGrid"] = mpHashGridUnshotBuffer;
+    // var["hashGridUnshotStr"] = mpHashGridUnshotBuffer;
     var["hashFingerprints"] = mpHashGridFingerprintsBuffer;
-    // TMP TODO:
-    var["hashGridAccum"] = mpHashGridAccumAverageBuffer;
-    var["hashGridUnshotStr"] = mpHashGridUnshotBuffer;
-    // var["hashGridAccum"] = mpHashGridAccumBuffer;
+    var["hashGridAccumAvg"] = mpHashGridAccumAverageBuffer;
+    // Importance
+    var["hashGridUnshotImportance"] = mpHashGridUnshotImportanceBuffer;
+    var["hashGridAccumImportance"] = mpHashGridAccumImportanceBuffer;
+    var["hashGridAccumAvgImportance"] = mpHashGridAccumAverageImportanceBuffer;
 
     // Area Calculations
     var["hashTotalAreaBuffer"] = mpHashTotalAreaBuffer;
@@ -402,19 +439,20 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     mpPixelDebug->beginFrame(pRenderContext, targetDim);
     mpPixelDebug->prepareProgram(mTracer.pProgram, var);
 
-    for (uint i = 0; i < 1; i++)
-    {
-        // Deposit Flux from the light sources Pass
-        executeLightDepositShader(pRenderContext);
-        // Collect a CDF over all explored patches
-        executeHashGridCDFShader(pRenderContext);
-        // Do a markov chain iteration
-        executeMarkovChainShader(pRenderContext, i);
-        // Average out the accumulated radiance
-        executeAveragingShader(pRenderContext);
-        // Clear Accumulated buffer of this iteration
-        pRenderContext->clearUAV(mpHashGridAccumBuffer->getUAV().get(), uint4(0));
-    }
+    if (!mPauseMarkovChainIterations)
+        for (uint i = 0; i < mMarcovChainsIterationsCount; i++)
+        {
+            // Deposit Flux from the light sources Pass
+            executeLightDepositShader(pRenderContext);
+            // Collect a CDF over all explored patches
+            executeHashGridCDFShader(pRenderContext);
+            // Do a markov chain iteration
+            executeMarkovChainShader(pRenderContext, i);
+            // Average out the accumulated radiance
+            executeAveragingShader(pRenderContext);
+            // Clear Accumulated buffer of this iteration
+            pRenderContext->clearUAV(mpHashGridAccumBuffer->getUAV().get(), uint4(0));
+        }
 
     // Spawn the rays.
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(targetDim, 1));
@@ -422,10 +460,9 @@ void IntelLongLight::execute(RenderContext* pRenderContext, const RenderData& re
     // For Pixel Debug
     mpPixelDebug->endFrame(pRenderContext);
 
-    // Clean Hash  Grid
+    // Reset unshot
     // pRenderContext->clearUAV(mpHashGridUnshotBuffer->getUAV().get(), uint4(0));
-
-    // Clear Sampled Points for now
+    // pRenderContext->clearUAV(mpHashGridUnshotImportanceBuffer->getUAV().get(), uint4(0));
     // pRenderContext->clearUAV(mpHashGridExploredBuffer->getUAV().get(), uint4(0));
 
     // Clear MCstates for now
@@ -438,13 +475,14 @@ void IntelLongLight::renderUI(Gui::Widgets& widget)
 {
     bool dirty = false;
 
-    dirty |= widget.var("Max bounces", mMaxBounces, 0u, 16u);
-    widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
+    // dirty |= widget.var("Max bounces", mMaxBounces, 0u, 16u);
+    // widget.tooltip("Maximum path length for indirect illumination.\n0 = direct only\n1 = one indirect bounce etc.", true);
 
-    dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
-    dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
+    // dirty |= widget.checkbox("Evaluate direct illumination", mComputeDirect);
+    // dirty |= widget.checkbox("Use importance sampling", mUseImportanceSampling);
 
     // Configurable parameters
+    dirty |= widget.checkbox("Pause", mPauseMarkovChainIterations);
     if (widget.var("Hash Table Scale", mHashTableScale, 0.001f, 1.0f, 0.001f)) {
         mUpdateHash = true;
         dirty = true;
@@ -461,6 +499,7 @@ void IntelLongLight::renderUI(Gui::Widgets& widget)
     if (widget.var("Accumulation EMA Coefficient", mAccumEMACoeff, 0.0001f, 1.0f, 0.0001f)) {
         dirty = true;
     }
+    dirty |= widget.checkbox("Display Importance", mDisplayImportance);
 
     // For Pixel Debug
     if (Gui::Group debug_group = widget.group("Debug"))

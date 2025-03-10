@@ -47,7 +47,7 @@ class FALCOR_API PrefixSum
 {
 public:
     /// Constructor. Throws an exception if creation failed.
-    PrefixSum(ref<Device> pDevice);
+    PrefixSum(ref<Device> pDevice, bool isFloat = false);
 
     /**
      * Computes the parallel prefix sum over an array of uint32_t elements.

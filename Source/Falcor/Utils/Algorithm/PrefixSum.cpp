@@ -36,16 +36,25 @@ namespace Falcor
 namespace
 {
 const char kShaderFile[] = "Utils/Algorithm/PrefixSum.cs.slang";
+const char kShaderFloatFile[] = "Utils/Algorithm/PrefixSumFloat.cs.slang";
 const uint32_t kGroupSize = 1024;
 } // namespace
 
-PrefixSum::PrefixSum(ref<Device> pDevice) : mpDevice(pDevice)
+PrefixSum::PrefixSum(ref<Device> pDevice, bool isFloat) : mpDevice(pDevice)
 {
     // Create shaders and state.
     DefineList defines = {{"GROUP_SIZE", std::to_string(kGroupSize)}};
-    mpPrefixSumGroupProgram = Program::createCompute(mpDevice, kShaderFile, "groupScan", defines);
+    if(isFloat)
+    {
+        mpPrefixSumGroupProgram = Program::createCompute(mpDevice, kShaderFloatFile, "groupScanFloat", defines);
+        mpPrefixSumFinalizeProgram = Program::createCompute(mpDevice, kShaderFloatFile, "finalizeGroupsFloat", defines);
+    }
+    else
+    {
+        mpPrefixSumGroupProgram = Program::createCompute(mpDevice, kShaderFile, "groupScan", defines);
+        mpPrefixSumFinalizeProgram = Program::createCompute(mpDevice, kShaderFile, "finalizeGroups", defines);
+    }
     mpPrefixSumGroupVars = ProgramVars::create(mpDevice, mpPrefixSumGroupProgram.get());
-    mpPrefixSumFinalizeProgram = Program::createCompute(mpDevice, kShaderFile, "finalizeGroups", defines);
     mpPrefixSumFinalizeVars = ProgramVars::create(mpDevice, mpPrefixSumFinalizeProgram.get());
 
     mpComputeState = ComputeState::create(mpDevice);

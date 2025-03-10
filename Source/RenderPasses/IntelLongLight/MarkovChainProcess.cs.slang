@@ -37,11 +37,20 @@ cbuffer PerFrameCB
 }
 
 // Hash Grid
-RWStructuredBuffer<uint32_t> hashGridExplored;
-RWStructuredBuffer<uint32_t> hashGridCDF;            ///< Accumulates energy per grid cell.
-RWStructuredBuffer<uint32_t> hashGridCDFSum;         ///< Accumulates energy per grid cell.
+// RWStructuredBuffer<uint32_t> hashGridExplored;
+// RWStructuredBuffer<uint32_t> hashGridCDF; ///< Accumulates energy per grid cell.
+// RWStructuredBuffer<uint32_t> hashGridCDFSum;
+RWByteAddressBuffer hashGridExplored;
+RWByteAddressBuffer hashGridCDF;    ///< Accumulates energy per grid cell.
+RWByteAddressBuffer hashGridCDFSum; ///< Accumulates energy per grid cell.
+// Importance
+RWByteAddressBuffer hashGridImportanceCDF;    ///< Accumulates energy per grid cell.
+RWByteAddressBuffer hashGridImportanceCDFSum; ///< Accumulates energy per grid cell.
 
 RWByteAddressBuffer hashGridAccum;
+
+RWByteAddressBuffer hashGridUnshotImportance;
+RWByteAddressBuffer hashGridAccumImportance;
 
 struct MarkovChainState
 {
@@ -54,6 +63,12 @@ struct MarkovChainState
 
 RWStructuredBuffer<MarkovChainState> markovChainStates;
 
+// Function to optimize
+float optimisationFunction(uint index)
+{
+    return asfloat(hashGridAccumImportance.Load(index * 4)) * (asfloat(hashGridAccum.Load(index * 12)) + asfloat(hashGridAccum.Load(index * 12 + 4)) + asfloat(hashGridAccum.Load(index * 12 + 8)));
+}
+
 // looks into CDF to get a selected index of a grid
 uint binarySearchHashGridCDFIndex(float searchValue, uint totalElements)
 {
@@ -63,7 +78,16 @@ uint binarySearchHashGridCDFIndex(float searchValue, uint totalElements)
     while (left < right)
     {
         uint mid = (left + right) / 2;
-        uint cdfValue = hashGridCDF[mid];
+        // print("hashGridCDF.mid", asfloat(hashGridCDF.Load(mid * 12)));
+        // print("hashGridCDFsum", asfloat(hashGridCDFSum.Load(0)));
+
+        // print("hashGridImportanceCDF.mid", asfloat(hashGridImportanceCDF.Load(mid * 4)));
+        // print("hashGridImportanceCDFsum", asfloat(hashGridImportanceCDFSum.Load(0)));
+
+        float energyCDFValue = asfloat(hashGridCDF.Load(mid * 12)) / (asfloat(hashGridCDFSum.Load(0)) + FLT_EPSILON);
+        float importanceCDFValue = asfloat(hashGridImportanceCDF.Load(mid * 4)) / (asfloat(hashGridImportanceCDFSum.Load(0)) + FLT_EPSILON);
+        float cdfValue = (energyCDFValue + importanceCDFValue) / 2;
+        // float cdfValue = importanceCDFValue;
         // print("cdfValue", cdfValue);
         if (cdfValue < searchValue)
         {
@@ -139,20 +163,25 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     // print("getActiveTriangleCount", gScene.lightCollection.getActiveTriangleCount());
 
     // Initialise sampler
-    SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gIterationCount + 10 * gFrameCount);
+    SampleGenerator sg = SampleGenerator(dispatchThreadId.xy, gFrameCount);
 
     // if large or small step
 
     // Randomly pick a hash grid from the researched ones
     float randomValue = sampleNext1D(sg);
-    uint32_t totalHashCDFSum = hashGridCDFSum[0];
-    float searchValue = randomValue * totalHashCDFSum;
+    // uint32_t totalHashCDFSum = hashGridCDFSum[0];
 
     // print("totalHashCDFSum", totalHashCDFSum);
     // print("searchValue", searchValue);
 
-    uint shootGridIndex = binarySearchHashGridCDFIndex(searchValue, gHashTableSize);
-    float pointPDF = (hashGridCDF[shootGridIndex] - hashGridCDF[shootGridIndex - 1]) / totalHashCDFSum;
+    print("r", randomValue);
+
+    uint shootGridIndex = binarySearchHashGridCDFIndex(randomValue, gHashTableSize);
+
+    print("shootGridIndex", shootGridIndex);
+
+    float pointPDF = (hashGridCDF.Load(shootGridIndex * 4) - hashGridCDF.Load((shootGridIndex - 1) * 4)) / asfloat(hashGridCDFSum.Load(0));
+    // float pointPDF = (hashGridCDF[shootGridIndex] - hashGridCDF[shootGridIndex - 1]) / totalHashCDFSum;
 
     // print("idx", idx);
 
@@ -214,45 +243,51 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     float energy_devidor = 10.0f;
 
     // Subtract energy from hashgrid
-    float original1;
+    float originalRed;
     float value = asfloat(hashGridUnshot.Load(shootGridIndex * 12));
     if (value < 0.0f)
         return;
     energy.x = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, -energy.x, original1);
-    if (original1 - energy.x < 0)
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, -energy.x, originalRed);
+    if (originalRed - energy.x < 0)
     {
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
         return;
     }
 
-    float original2;
+    float originalGreen;
     value = asfloat(hashGridUnshot.Load(shootGridIndex * 12 + 4));
     if (value < 0.0f)
+    {
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
         return;
+    }
     energy.y = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, -energy.y, original2);
-    if (original2 - energy.y < 0)
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, -energy.y, originalGreen);
+    if (originalGreen - energy.y < 0)
     {
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
         return;
     }
 
-    float original3;
+    float originalBlue;
     value = asfloat(hashGridUnshot.Load(shootGridIndex * 12 + 8));
     if (value < 0.0f)
+    {
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
+        hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
         return;
+    }
     energy.z = value / energy_devidor;
-    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 8, -energy.z, original3);
-    if (original3 - energy.z < 0)
+    hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 8, -energy.z, originalBlue);
+    if (originalBlue - energy.z < 0)
     {
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12, energy.x);
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
         hashGridUnshot.InterlockedAddF32(shootGridIndex * 12 + 8, energy.z);
         return;
     }
-
 
     hashGridAccum.InterlockedAddF32(shootGridIndex * 12, energy.x);
     hashGridAccum.InterlockedAddF32(shootGridIndex * 12 + 4, energy.y);
@@ -299,7 +334,8 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
         // print("markovChainStates.init", markovChainStates[dispatchThreadId.x].init);
 
         // add new point for random selection
-        hashGridExplored[hitGridIndex] = 1;
+        // hashGridExplored[hitGridIndex] = 1;
+        hashGridExplored.Store(hitGridIndex * 4, 1.0f);
         addIntersectionPoint(hitGridIndex, hitOrigin, hitNormal);
 
         // No previous stae
@@ -336,6 +372,39 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
             // hashGridAccum.InterlockedAddF32(hitGridIndex * 12, f_y.x);
             // hashGridAccum.InterlockedAddF32(hitGridIndex * 12 + 4, f_y.y);
             // hashGridAccum.InterlockedAddF32(hitGridIndex * 12 + 8, f_y.z);
+
+
+            // Propogate Importance
+            float originalImportance;
+            value = asfloat(hashGridUnshotImportance.Load(shootGridIndex * 4));
+            if (value > 0.0f)
+            {
+                float importance = value / energy_devidor;
+                hashGridUnshotImportance.InterlockedAddF32(shootGridIndex * 4, -importance, originalImportance);
+                hashGridAccumImportance.InterlockedAddF32(shootGridIndex * 4, importance);
+                if (originalImportance - importance < 0)
+                    hashGridUnshotImportance.InterlockedAddF32(shootGridIndex * 4, importance);
+                else
+                {
+                    float I = 0.5 * importance;
+                    hashGridUnshotImportance.InterlockedAddF32(hitGridIndex * 4, I);
+                }
+
+            }
+            value = asfloat(hashGridUnshotImportance.Load(hitGridIndex * 4));
+            if (value > 0.0f)
+            {
+                float importance = value / energy_devidor;
+                hashGridUnshotImportance.InterlockedAddF32(hitGridIndex * 4, -importance, originalImportance);
+                hashGridAccumImportance.InterlockedAddF32(hitGridIndex * 4, importance);
+                if (originalImportance - importance < 0)
+                    hashGridUnshotImportance.InterlockedAddF32(hitGridIndex * 4, importance);
+                else
+                {
+                    float I = 0.5 * importance;
+                    hashGridUnshotImportance.InterlockedAddF32(shootGridIndex * 4, I);
+                }
+            }
 
             // Save State
             markovChainStates[dispatchThreadId.x].init = 1;

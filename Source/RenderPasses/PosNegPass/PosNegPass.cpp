@@ -52,6 +52,10 @@ PosNegPass::PosNegPass(ref<Device> pDevice, const Properties& props) : RenderPas
             logWarning("Unknown property '{}' in PosNegPass properties.", key);
     }
 
+    // For Pixel Debug
+    mpPixelDebug = std::make_unique<PixelDebug>(mpDevice);
+    mpPixelDebug->enable();
+
     mpComputePass = ComputePass::create(mpDevice, kShaderFile, "main");
 }
 
@@ -91,7 +95,14 @@ void PosNegPass::execute(RenderContext* pRenderContext, const RenderData& render
     rootVar["gOutputImage"] = pOutputImage;
     rootVar["PerFrameCB"]["gScaleFactor"] = mScaleFactor;
 
+    // For Pixel Debug
+    mpPixelDebug->beginFrame(pRenderContext, uint2(pTestImage->getWidth(), pTestImage->getHeight()));
+    mpPixelDebug->prepareProgram(mpComputePass->getProgram(), rootVar);
+
     mpComputePass->execute(pRenderContext, uint3(pTestImage->getWidth(), pTestImage->getHeight(), 1));
+
+    // For Pixel Debug
+    mpPixelDebug->endFrame(pRenderContext);
 
     pRenderContext->blit(pOutputImage->getSRV(), pOutputDisplayImage->getRTV());
 }
@@ -100,4 +111,11 @@ void PosNegPass::renderUI(Gui::Widgets& widget)
 {
     widget.text("Computes luminance difference between test and reference images");
     widget.var("Scale Factor", mScaleFactor, 0.1f, 100.0f, 1.0f);
+
+    // For Pixel Debug
+    if (Gui::Group debug_group = widget.group("Debug"))
+    {
+        ImGui::Separator();
+        mpPixelDebug->renderUI(debug_group);
+    }
 }

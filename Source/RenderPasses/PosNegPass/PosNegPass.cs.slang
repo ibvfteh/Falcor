@@ -1,4 +1,6 @@
 import Utils.Color.ColorHelpers;
+// For Pixel Debug
+import Utils.Debug.PixelDebug;
 
 Texture2D<float4> gTestImage;
 Texture2D<float4> gReferenceImage;
@@ -10,9 +12,14 @@ cbuffer PerFrameCB
 }
 
 [numthreads(16, 16, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint2 pixelPos = dispatchThreadId.xy;
+
+    // For Pixel Debug
+    printSetPixel(pixelPos);
+
+
     float3 testColor = gTestImage[pixelPos].rgb;
     float3 referenceColor = gReferenceImage[pixelPos].rgb;
 
@@ -21,6 +28,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float referenceLuminance = referenceColor.r + referenceColor.g + referenceColor.b;
 
     float luminanceDifference = (testLuminance - referenceLuminance) * gScaleFactor;
+
+    print("testColor", testColor);
+    print("referenceColor", referenceColor);
 
     // Set color: Green for positive, Red for negative differences
     float3 outputColor = (luminanceDifference > 0)

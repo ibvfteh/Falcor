@@ -78,7 +78,11 @@ cbuffer CB
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float4> gViewW; // Optional
 
-RWStructuredBuffer<float3> hashGridAccum;
+RWStructuredBuffer<float3> hashGridAccumAvg;
+RWByteAddressBuffer hashGridUnshotImportance;
+
+RWStructuredBuffer<float> hashGridAccumImportance;
+RWStructuredBuffer<float> hashGridAccumAvgImportance;
 
 // Outputs
 RWTexture2D<float4> gOutputColor;
@@ -92,6 +96,7 @@ static const bool kUseAnalyticLights = USE_ANALYTIC_LIGHTS;
 static const bool kUseEmissiveLights = USE_EMISSIVE_LIGHTS;
 static const bool kUseEnvLight = USE_ENV_LIGHT;
 static const bool kUseEnvBackground = USE_ENV_BACKGROUND;
+static const bool kDisplayImportance = DISPLAY_IMPORTANCE;
 static const float3 kDefaultBackgroundColor = float3(0, 0, 0);
 static const float kRayTMax = FLT_MAX;
 
@@ -448,26 +453,51 @@ float3 tracePath(const uint2 pixel, const uint2 frameDim)
         // print("hashGridIntersectPointspos", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].pos);
         // print("hashGridIntersectPoints", hashGridIntersectPoints[gridIndex * gMaxIntersectPointCount].dir);
 
-        float3 value = hashGridAccum[gridIndex]; // + hashGridUnshot[gridIndex];
+        if (kDisplayImportance)
+        {
+            float value = hashGridAccumAvgImportance[gridIndex];
+            // float value = asfloat(hashGridUnshotImportance.Load(gridIndex * 4));
 
-        // cell area
-        //TODO: need to work on correctness
-        float area = gHashGridScale * gHashGridScale;
+            // outColor = float3(value);
+            outColor = float3(value * 1000);
 
-        float parea = getArea(gridIndex);
+            print("AccumAvg Importance", value);
+            print("Accum imp", hashGridAccumImportance[gridIndex]);
+            print("Color", outColor);
 
-        outColor = max(value, float3(0.0f, 0.0f, 0.0f)) / M_PI;
+            // Add importance
+            float importanceEnergy = 1.0f / (frameDim.x * frameDim.y);
+            hashGridUnshotImportance.InterlockedAddF32(gridIndex * 4, importanceEnergy);
 
-        outColor = outColor / parea;
+            print("importanceEnergy", importanceEnergy);
+            print("p", asfloat(hashGridUnshotImportance.Load(gridIndex * 4)));
+        }
+        else
+        {
+            float3 value = hashGridAccumAvg[gridIndex];
 
-        print("hashGrid", value);
-        print("true_area", area);
-        print("pred_area", parea);
+            // cell area
+            //TODO: need to work on correctness
+            float area = gHashGridScale * gHashGridScale;
 
-        print("outColor", outColor);
+            float parea = getArea(gridIndex);
 
-        // hashGrid[gridIndex] = 0.0f;
+            outColor = max(value, float3(0.0f, 0.0f, 0.0f)) / M_PI;
 
+            outColor = outColor / area;
+
+            // Add importance
+            float importanceEnergy = 1.0f / (frameDim.x * frameDim.y) / 1000;
+            hashGridUnshotImportance.InterlockedAddF32(gridIndex * 4, importanceEnergy);
+
+            print("hashGrid", value);
+            print("true_area", area);
+            print("pred_area", parea);
+
+            print("imp", importanceEnergy);
+            print("outColor", outColor);
+
+        }
 
         // outColor = floor(rayOrigin / 0.1) / 10;
 

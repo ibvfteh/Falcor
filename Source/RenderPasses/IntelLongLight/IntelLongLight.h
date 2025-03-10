@@ -66,15 +66,25 @@ private:
     /// Use importance sampling for materials.
     bool mUseImportanceSampling = true;
 
+    // Display Importance hash grid or light energy
+    bool mDisplayImportance = false;
+    // DO accumulation
+    bool mPauseMarkovChainIterations = false;
 
     bool mUpdateHash = false;
     uint mHashTableSize = 10000000;
-    float mHashTableScale = 0.05f;
-    /// Buffer for hash grid.
-    // TODO: change to two buffers
+    float mHashTableScale = 0.1f;
+    /// Buffer for Energy hash grid.
     ref<Buffer> mpHashGridUnshotBuffer;    // mpHashGridUnshotBuffer;
     ref<Buffer> mpHashGridAccumBuffer; // Buffer for accumulated radiosity
     ref<Buffer> mpHashGridAccumAverageBuffer; // Result Buffer with averaging over frames
+    /// Buffer for Importance hash grid.
+    ref<Buffer> mpHashGridUnshotImportanceBuffer;    // mpHashGridUnshotBuffer;
+    ref<Buffer> mpHashGridAccumImportanceBuffer; // Buffer for accumulated radiosity
+    ref<Buffer> mpHashGridAccumAverageImportanceBuffer; // Result Buffer with averaging over frames
+    // Importance CDF
+    ref<Buffer> mpHashGridImportanceCDFBuffer;
+    ref<Buffer> mpHashGridImportanceCDFSumBuffer;
 
     ref<Buffer> mpHashGridFingerprintsBuffer;
     ref<Buffer> mpHashGridLockBuffer;
@@ -120,12 +130,15 @@ private:
     // Compute passes used to build the CDF of hash grid to select samples.
     std::unique_ptr<PrefixSum> mpPrefixSumPass;
 
+    // Compute passes used to build the CDF of hash grid importance to select samples.
+    std::unique_ptr<PrefixSum> mpImportancePrefixSumPass;
+
     // Marcov Chain Monte CarloPass
     uint mMarkovChainsCount = 400000;
     uint mMarcovChainsIterationsCount = 1;
     ref<ComputePass> mpMarkovChainPass;
 
     // Hash grid averaging Pass
-    float mAccumEMACoeff = 0.001f;
+    float mAccumEMACoeff = 0.01f;
     ref<ComputePass> mpAveragingPass;
 };

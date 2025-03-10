@@ -41,7 +41,7 @@ struct GaussianArea
 };
 
 // Hash Grid
-RWStructuredBuffer<float3> hashGridUnshotStr;                // Stores light energy in hash cells
+// RWStructuredBuffer<float3> hashGridUnshotStr;                // Stores light energy in hash cells
 RWStructuredBuffer<uint> hashFingerprints;          // Stores fingerprints for collision prevention
 
 RWStructuredBuffer<Itersect> hashGridIntersectPoints;     // Stores intersection points in hash cells.
@@ -244,6 +244,7 @@ float getArea(uint index)
     }
 
     return M_PI * area / 2;
+    // return 1.9 * area;
     // return 1.388 * area;
 }
 
